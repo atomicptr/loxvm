@@ -1,0 +1,30 @@
+class Food {
+    cook() {
+        print "Cook the food";
+    }
+
+    is_delicious() {
+        return true;
+    }
+}
+
+class Donut < Food {
+    cook() {
+        print "Fry until golden brown.";
+    }
+}
+
+class BostonCream < Donut {
+    cook() {
+        super.cook();
+        print "Pipe full of castard and coat with chocolate.";
+    }
+}
+
+var donut = BostonCream();
+
+donut.cook();
+
+if (donut.is_delicious()) {
+    print "The donut is delicious!";
+}

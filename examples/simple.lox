@@ -1,0 +1,12 @@
+// this is a demo lox program
+var x = 1337;
+var y = 3;
+
+print "Is it hit!?";
+
+if (x + y == 1340) {
+    print "HIT";
+} else {
+    print "NOPE";
+}
+
