@@ -1,4 +1,9 @@
-use crate::vm::{chunk::Chunk, op, value::Value};
+use crate::vm::{
+    chunk::Chunk,
+    op,
+    scanner::{Scanner, ScannerError, TokenType},
+    value::Value,
+};
 
 const DEBUG_MODE: bool = true;
 
@@ -11,12 +16,54 @@ pub struct VM {
 
 #[derive(Debug)]
 pub enum VMError {
+    ScannerError(ScannerError),
     CompileError,
     RuntimeError,
 }
 
+impl From<ScannerError> for VMError {
+    fn from(value: ScannerError) -> Self {
+        VMError::ScannerError(value)
+    }
+}
+
 impl VM {
-    pub fn run(&mut self, chunk: Chunk) -> Result<(), VMError> {
+    pub fn run(&mut self, code: String) -> Result<(), VMError> {
+        self.compile(code)
+    }
+
+    fn compile(&mut self, code: String) -> Result<(), VMError> {
+        let mut scanner = Scanner::new(code);
+
+        let mut line = 0;
+
+        loop {
+            let token = scanner.scan()?;
+
+            if token.line != line {
+                print!("{:04} ", token.line);
+                line = token.line;
+            } else {
+                print!("   | ");
+            }
+
+            println!(
+                "{:<12} {:04} {:04} {}",
+                format!("{:?}", token.token_type),
+                token.start,
+                token.length,
+                scanner.token_data(&token)
+            );
+
+            if token.token_type == TokenType::Eof {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn interpret(&mut self, chunk: Chunk) -> Result<(), VMError> {
         self.chunk = Some(chunk);
         self.ip = 0;
         self.stack.clear();
