@@ -13,11 +13,27 @@ impl Chunk {
         self.lines.push(line);
     }
 
-    pub fn push_constant(&mut self, value: Value) -> u8 {
+    pub fn push_constant(&mut self, value: Value, line: usize) {
+        self.push(op::CONSTANT, line.clone());
+
         self.constants.push(value);
-        (self.constants.len() - 1)
+        let index = (self.constants.len() - 1)
             .try_into()
-            .expect("err: too many constants defined")
+            .expect("err: too many constants defined");
+
+        self.push(index, line);
+    }
+
+    pub fn len(&self) -> usize {
+        self.code.len()
+    }
+
+    pub fn read_byte(&self, index: usize) -> Option<&u8> {
+        self.code.get(index)
+    }
+
+    pub fn read_constant(&self, index: u8) -> Option<&Value> {
+        self.constants.get(index as usize)
     }
 
     fn get_line(&self, offset: usize) -> Option<usize> {
@@ -34,7 +50,7 @@ impl Chunk {
         }
     }
 
-    fn debug_op(&self, offset: usize) -> usize {
+    pub fn debug_op(&self, offset: usize) -> usize {
         let op = self
             .code
             .get(offset)
@@ -53,11 +69,16 @@ impl Chunk {
         }
 
         match *op {
-            op::RETURN => self.debug_op_simple("OP_RETURN", offset),
-            op::CONSTANT => self.debug_op_constant("OP_CONSTANT", offset),
+            op::CONSTANT => self.debug_op_constant("CONSTANT", offset),
+            op::ADD => self.debug_op_simple("ADD", offset),
+            op::SUBTRACT => self.debug_op_simple("SUBTRACT", offset),
+            op::MULTIPLY => self.debug_op_simple("MULTIPLY", offset),
+            op::DIVIDE => self.debug_op_simple("DIVIDE", offset),
+            op::NEGATE => self.debug_op_simple("NEGATE", offset),
+            op::RETURN => self.debug_op_simple("RETURN", offset),
 
             _ => {
-                println!("Unknown opcode: {op}");
+                println!("UNKNOWN OPCODE: {op}");
                 offset + 1
             }
         }
