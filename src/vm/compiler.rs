@@ -66,6 +66,7 @@ impl Precedence {
 
 #[derive(Debug)]
 enum ParseFn {
+    Literal,
     Grouping,
     Unary,
     Binary,
@@ -192,6 +193,7 @@ impl Compiler {
 
         match op_type {
             TokenType::Minus => self.emit_byte(op::NEGATE),
+            TokenType::Bang => self.emit_byte(op::NOT),
             _ => unreachable!(),
         }
 
@@ -209,6 +211,12 @@ impl Compiler {
             TokenType::Minus => self.emit_byte(op::SUBTRACT),
             TokenType::Star => self.emit_byte(op::MULTIPLY),
             TokenType::Slash => self.emit_byte(op::DIVIDE),
+            TokenType::NotEqual => self.emit_bytes(op::EQUAL, op::NOT),
+            TokenType::EqualEqual => self.emit_byte(op::EQUAL),
+            TokenType::Greater => self.emit_byte(op::GREATER),
+            TokenType::GreaterEqual => self.emit_bytes(op::LESS, op::NOT),
+            TokenType::Less => self.emit_byte(op::LESS),
+            TokenType::LessEqual => self.emit_bytes(op::GREATER, op::NOT),
             _ => unreachable!(),
         }
 
@@ -231,12 +239,40 @@ impl Compiler {
             TokenType::Number => {
                 ParseRule::new(Some(ParseFn::Number), None, Precedence::NoPrecedence)
             }
+            TokenType::True => {
+                ParseRule::new(Some(ParseFn::Literal), None, Precedence::NoPrecedence)
+            }
+
+            TokenType::False => {
+                ParseRule::new(Some(ParseFn::Literal), None, Precedence::NoPrecedence)
+            }
+            TokenType::Nil => {
+                ParseRule::new(Some(ParseFn::Literal), None, Precedence::NoPrecedence)
+            }
+            TokenType::Bang => ParseRule::new(Some(ParseFn::Unary), None, Precedence::NoPrecedence),
+            TokenType::NotEqual => {
+                ParseRule::new(None, Some(ParseFn::Binary), Precedence::Equality)
+            }
+            TokenType::EqualEqual => {
+                ParseRule::new(None, Some(ParseFn::Binary), Precedence::Equality)
+            }
+            TokenType::Greater => {
+                ParseRule::new(None, Some(ParseFn::Binary), Precedence::Comparison)
+            }
+            TokenType::GreaterEqual => {
+                ParseRule::new(None, Some(ParseFn::Binary), Precedence::Comparison)
+            }
+            TokenType::Less => ParseRule::new(None, Some(ParseFn::Binary), Precedence::Comparison),
+            TokenType::LessEqual => {
+                ParseRule::new(None, Some(ParseFn::Binary), Precedence::Comparison)
+            }
             _ => ParseRule::default(),
         }
     }
 
     fn apply_parsefn(&mut self, parsefn: ParseFn) -> ParseResult {
         match parsefn {
+            ParseFn::Literal => self.literal(),
             ParseFn::Grouping => self.grouping(),
             ParseFn::Unary => self.unary(),
             ParseFn::Binary => self.binary(),
@@ -257,7 +293,18 @@ impl Compiler {
             .parse::<f64>()
             .expect("must convert to number");
 
-        self.emit_constant(value);
+        self.emit_constant(Value::Number(value));
+
+        Ok(())
+    }
+
+    fn literal(&mut self) -> ParseResult {
+        match self.previous.unwrap().token_type {
+            TokenType::True => self.emit_byte(op::TRUE),
+            TokenType::False => self.emit_byte(op::FALSE),
+            TokenType::Nil => self.emit_byte(op::NIL),
+            _ => unreachable!(),
+        };
 
         Ok(())
     }

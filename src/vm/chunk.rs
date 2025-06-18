@@ -76,6 +76,10 @@ impl Chunk {
             op::DIVIDE => self.debug_op_simple("DIVIDE", offset),
             op::NEGATE => self.debug_op_simple("NEGATE", offset),
             op::RETURN => self.debug_op_simple("RETURN", offset),
+            op::TRUE => self.debug_op_simple("TRUE", offset),
+            op::FALSE => self.debug_op_simple("FALSE", offset),
+            op::NIL => self.debug_op_simple("NIL", offset),
+            op::NOT => self.debug_op_simple("NOT", offset),
 
             _ => {
                 println!("UNKNOWN OPCODE: {op}");
@@ -100,7 +104,7 @@ impl Chunk {
             .get(constant.clone() as usize)
             .expect(format!("error: could not access constant offset: {constant}").as_str());
 
-        println!("{name:<16} {constant:>4} {value}");
+        println!("{name:<16} {constant:>4} {value:?}");
 
         offset + 2
     }
