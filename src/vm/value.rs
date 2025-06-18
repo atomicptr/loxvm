@@ -150,7 +150,7 @@ impl Value {
     }
 
     pub fn negate(&self) -> Result<Value, ValueError> {
-        match (self) {
+        match self {
             Value::Number(num) => Ok((-num).into()),
             _ => Err(ValueError::UnaryOpInvalidTypes(self.clone())),
         }

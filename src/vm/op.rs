@@ -1,19 +1,39 @@
-pub const CONSTANT: u8 = 0;
-pub const NIL: u8 = 1;
-pub const TRUE: u8 = 2;
-pub const FALSE: u8 = 3;
+#[derive(Debug, Clone)]
+#[repr(u8)]
+pub enum Op {
+    Constant,
+    Nil,
+    True,
+    False,
 
-// unary operations
-pub const NOT: u8 = 4;
-pub const NEGATE: u8 = 5;
+    // unary operations
+    Not,
+    Negate,
 
-// binary operations
-pub const ADD: u8 = 6;
-pub const SUBTRACT: u8 = 7;
-pub const MULTIPLY: u8 = 8;
-pub const DIVIDE: u8 = 9;
-pub const EQUAL: u8 = 10;
-pub const GREATER: u8 = 11;
-pub const LESS: u8 = 12;
+    // binary operations
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Equal,
+    Greater,
+    Less,
 
-pub const RETURN: u8 = 13;
+    Return,
+}
+
+impl Into<u8> for Op {
+    fn into(self) -> u8 {
+        self as u8
+    }
+}
+
+impl From<u8> for Op {
+    fn from(value: u8) -> Self {
+        if value > Op::Return.into() {
+            panic!("attempt to convert invalid number to opcode");
+        }
+
+        unsafe { std::mem::transmute(value) }
+    }
+}

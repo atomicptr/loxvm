@@ -1,7 +1,7 @@
 use crate::vm::{
     chunk::Chunk,
     compiler::{CompileError, compile},
-    op,
+    op::{self, Op},
     value::{Comp, Value, ValueError},
 };
 
@@ -49,66 +49,66 @@ impl VM {
             self.debug_ip();
 
             if let Some(op) = self.read_byte() {
+                let op = Op::from(op);
+
                 match op {
-                    op::CONSTANT => {
+                    Op::Constant => {
                         let constant = self
                             .read_constant()
                             .expect("could not read constant")
                             .clone();
                         self.stack.push(constant.clone());
                     }
-                    op::NIL => self.stack.push(Value::Nil),
-                    op::TRUE => self.stack.push(Value::Bool(true)),
-                    op::FALSE => self.stack.push(Value::Bool(false)),
+                    Op::Nil => self.stack.push(Value::Nil),
+                    Op::True => self.stack.push(Value::Bool(true)),
+                    Op::False => self.stack.push(Value::Bool(false)),
 
                     // unary operations
-                    op::NEGATE => {
+                    Op::Negate => {
                         let value = self.pop();
                         self.stack.push(value.negate()?);
                     }
-                    op::NOT => {
+                    Op::Not => {
                         let value = self.pop();
                         self.stack.push((!value.is_truthy()).into());
                     }
 
                     // binary operations
-                    op::ADD => {
+                    Op::Add => {
                         let (a, b) = self.pop2();
                         self.stack.push(a.add(&b)?.into());
                     }
-                    op::SUBTRACT => {
+                    Op::Subtract => {
                         let (a, b) = self.pop2();
                         self.stack.push(a.sub(&b)?.into());
                     }
-                    op::MULTIPLY => {
+                    Op::Multiply => {
                         let (a, b) = self.pop2();
                         self.stack.push(a.mul(&b)?.into());
                     }
-                    op::DIVIDE => {
+                    Op::Divide => {
                         let (a, b) = self.pop2();
                         self.stack.push(a.div(&b)?.into());
                     }
-                    op::EQUAL => {
+                    Op::Equal => {
                         let (a, b) = self.pop2();
                         self.stack.push(a.equals(&b).into());
                     }
-                    op::GREATER => {
+                    Op::Greater => {
                         let (a, b) = self.pop2();
                         self.stack.push((a.compare(&b)? == Comp::Greater).into());
                     }
-                    op::LESS => {
+                    Op::Less => {
                         let (a, b) = self.pop2();
                         self.stack.push((a.compare(&b)? == Comp::Lesser).into());
                     }
 
-                    op::RETURN => {
+                    Op::Return => {
                         if let Some(value) = self.stack.pop() {
                             println!("{value:?}");
                         }
                         return Ok(());
                     }
-
-                    _ => panic!("unknown operation: {op}"),
                 }
             } else {
                 break;

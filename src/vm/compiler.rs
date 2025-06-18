@@ -1,6 +1,6 @@
 use crate::vm::{
     chunk::Chunk,
-    op,
+    op::{self, Op},
     scanner::{Scanner, ScannerError, Token, TokenType},
     value::Value,
 };
@@ -111,7 +111,7 @@ impl Compiler {
             return Err(CompileError::ExpectedEndOfExpression(self.current.unwrap()));
         }
 
-        self.emit_byte(op::RETURN);
+        self.emit_byte(Op::Return.into());
 
         Ok(self.chunk.take().unwrap())
     }
@@ -192,8 +192,8 @@ impl Compiler {
         self.parse_precedence(Precedence::Unary)?;
 
         match op_type {
-            TokenType::Minus => self.emit_byte(op::NEGATE),
-            TokenType::Bang => self.emit_byte(op::NOT),
+            TokenType::Minus => self.emit_byte(Op::Negate.into()),
+            TokenType::Bang => self.emit_byte(Op::Not.into()),
             _ => unreachable!(),
         }
 
@@ -207,16 +207,16 @@ impl Compiler {
         self.parse_precedence(rule.precedence.next().unwrap_or_default())?;
 
         match op_type {
-            TokenType::Plus => self.emit_byte(op::ADD),
-            TokenType::Minus => self.emit_byte(op::SUBTRACT),
-            TokenType::Star => self.emit_byte(op::MULTIPLY),
-            TokenType::Slash => self.emit_byte(op::DIVIDE),
-            TokenType::NotEqual => self.emit_bytes(op::EQUAL, op::NOT),
-            TokenType::EqualEqual => self.emit_byte(op::EQUAL),
-            TokenType::Greater => self.emit_byte(op::GREATER),
-            TokenType::GreaterEqual => self.emit_bytes(op::LESS, op::NOT),
-            TokenType::Less => self.emit_byte(op::LESS),
-            TokenType::LessEqual => self.emit_bytes(op::GREATER, op::NOT),
+            TokenType::Plus => self.emit_byte(Op::Add.into()),
+            TokenType::Minus => self.emit_byte(Op::Subtract.into()),
+            TokenType::Star => self.emit_byte(Op::Multiply.into()),
+            TokenType::Slash => self.emit_byte(Op::Divide.into()),
+            TokenType::NotEqual => self.emit_bytes(Op::Equal.into(), Op::Not.into()),
+            TokenType::EqualEqual => self.emit_byte(Op::Equal.into()),
+            TokenType::Greater => self.emit_byte(Op::Greater.into()),
+            TokenType::GreaterEqual => self.emit_bytes(Op::Less.into(), Op::Not.into()),
+            TokenType::Less => self.emit_byte(Op::Less.into()),
+            TokenType::LessEqual => self.emit_bytes(Op::Greater.into(), Op::Not.into()),
             _ => unreachable!(),
         }
 
@@ -300,9 +300,9 @@ impl Compiler {
 
     fn literal(&mut self) -> ParseResult {
         match self.previous.unwrap().token_type {
-            TokenType::True => self.emit_byte(op::TRUE),
-            TokenType::False => self.emit_byte(op::FALSE),
-            TokenType::Nil => self.emit_byte(op::NIL),
+            TokenType::True => self.emit_byte(Op::True.into()),
+            TokenType::False => self.emit_byte(Op::False.into()),
+            TokenType::Nil => self.emit_byte(Op::Nil.into()),
             _ => unreachable!(),
         };
 

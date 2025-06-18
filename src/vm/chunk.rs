@@ -1,4 +1,7 @@
-use crate::vm::{op, value::Value};
+use crate::vm::{
+    op::{self, Op},
+    value::Value,
+};
 
 #[derive(Debug, Default)]
 pub struct Chunk {
@@ -14,7 +17,7 @@ impl Chunk {
     }
 
     pub fn push_constant(&mut self, value: Value, line: usize) {
-        self.push(op::CONSTANT, line.clone());
+        self.push(Op::Constant.into(), line.clone());
 
         self.constants.push(value);
         let index = (self.constants.len() - 1)
@@ -68,35 +71,20 @@ impl Chunk {
             print!("{:>4} ", line);
         }
 
-        match *op {
-            op::CONSTANT => self.debug_op_constant("CONSTANT", offset),
-            op::ADD => self.debug_op_simple("ADD", offset),
-            op::SUBTRACT => self.debug_op_simple("SUBTRACT", offset),
-            op::MULTIPLY => self.debug_op_simple("MULTIPLY", offset),
-            op::DIVIDE => self.debug_op_simple("DIVIDE", offset),
-            op::NEGATE => self.debug_op_simple("NEGATE", offset),
-            op::RETURN => self.debug_op_simple("RETURN", offset),
-            op::TRUE => self.debug_op_simple("TRUE", offset),
-            op::FALSE => self.debug_op_simple("FALSE", offset),
-            op::NIL => self.debug_op_simple("NIL", offset),
-            op::NOT => self.debug_op_simple("NOT", offset),
-            op::EQUAL => self.debug_op_simple("EQUAL", offset),
-            op::LESS => self.debug_op_simple("LESS", offset),
-            op::GREATER => self.debug_op_simple("GREATER", offset),
+        let op = Op::from(*op);
 
-            _ => {
-                println!("UNKNOWN OPCODE: {op}");
-                offset + 1
-            }
+        match op {
+            Op::Constant => self.debug_op_constant(offset),
+            op => self.debug_op_simple(op, offset),
         }
     }
 
-    fn debug_op_simple(&self, name: &str, offset: usize) -> usize {
-        println!("{name:<16}");
+    fn debug_op_simple(&self, op: Op, offset: usize) -> usize {
+        println!("{:<16}", format!("{op:?}").to_uppercase());
         offset + 1
     }
 
-    fn debug_op_constant(&self, name: &str, offset: usize) -> usize {
+    fn debug_op_constant(&self, offset: usize) -> usize {
         let constant = self
             .code
             .get(offset + 1)
@@ -107,7 +95,7 @@ impl Chunk {
             .get(constant.clone() as usize)
             .expect(format!("error: could not access constant offset: {constant}").as_str());
 
-        println!("{name:<16} {constant:>4} {value:?}");
+        println!("{name:<16} {constant:>4} {value:?}", name = "CONSTANT");
 
         offset + 2
     }
