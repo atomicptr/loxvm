@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TokenType {
     LParen,
     RParen,
@@ -46,7 +46,7 @@ pub enum TokenType {
     Error,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Token {
     pub token_type: TokenType,
     pub line: usize,

@@ -1,5 +1,6 @@
 use crate::vm::{
     chunk::Chunk,
+    compiler::{CompileError, compile},
     op,
     scanner::{Scanner, ScannerError, TokenType},
     value::Value,
@@ -16,58 +17,28 @@ pub struct VM {
 
 #[derive(Debug)]
 pub enum VMError {
-    ScannerError(ScannerError),
-    CompileError,
+    CompileError(CompileError),
     RuntimeError,
 }
 
-impl From<ScannerError> for VMError {
-    fn from(value: ScannerError) -> Self {
-        VMError::ScannerError(value)
+impl From<CompileError> for VMError {
+    fn from(value: CompileError) -> Self {
+        VMError::CompileError(value)
     }
 }
 
 impl VM {
     pub fn run(&mut self, code: String) -> Result<(), VMError> {
-        self.compile(code)
-    }
+        let chunk = compile(code)?;
 
-    fn compile(&mut self, code: String) -> Result<(), VMError> {
-        let mut scanner = Scanner::new(code);
-
-        let mut line = 0;
-
-        loop {
-            let token = scanner.scan()?;
-
-            if token.line != line {
-                print!("{:04} ", token.line);
-                line = token.line;
-            } else {
-                print!("   | ");
-            }
-
-            println!(
-                "{:<12} {:04} {:04} {}",
-                format!("{:?}", token.token_type),
-                token.start,
-                token.length,
-                scanner.token_data(&token)
-            );
-
-            if token.token_type == TokenType::Eof {
-                break;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn interpret(&mut self, chunk: Chunk) -> Result<(), VMError> {
         self.chunk = Some(chunk);
         self.ip = 0;
         self.stack.clear();
 
+        self.interpret()
+    }
+
+    fn interpret(&mut self) -> Result<(), VMError> {
         loop {
             self.debug_ip();
 
@@ -81,23 +52,23 @@ impl VM {
                         self.stack.push(constant);
                     }
                     op::ADD => {
-                        let a = self.stack.pop().expect("could not read from stack");
                         let b = self.stack.pop().expect("could not read from stack");
+                        let a = self.stack.pop().expect("could not read from stack");
                         self.stack.push(a + b);
                     }
                     op::SUBTRACT => {
-                        let a = self.stack.pop().expect("could not read from stack");
                         let b = self.stack.pop().expect("could not read from stack");
+                        let a = self.stack.pop().expect("could not read from stack");
                         self.stack.push(a - b);
                     }
                     op::MULTIPLY => {
-                        let a = self.stack.pop().expect("could not read from stack");
                         let b = self.stack.pop().expect("could not read from stack");
+                        let a = self.stack.pop().expect("could not read from stack");
                         self.stack.push(a * b);
                     }
                     op::DIVIDE => {
-                        let a = self.stack.pop().expect("could not read from stack");
                         let b = self.stack.pop().expect("could not read from stack");
+                        let a = self.stack.pop().expect("could not read from stack");
                         self.stack.push(a / b);
                     }
                     op::NEGATE => {
