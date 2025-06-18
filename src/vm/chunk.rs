@@ -80,6 +80,9 @@ impl Chunk {
             op::FALSE => self.debug_op_simple("FALSE", offset),
             op::NIL => self.debug_op_simple("NIL", offset),
             op::NOT => self.debug_op_simple("NOT", offset),
+            op::EQUAL => self.debug_op_simple("EQUAL", offset),
+            op::LESS => self.debug_op_simple("LESS", offset),
+            op::GREATER => self.debug_op_simple("GREATER", offset),
 
             _ => {
                 println!("UNKNOWN OPCODE: {op}");

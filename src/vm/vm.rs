@@ -57,64 +57,57 @@ impl VM {
                             .clone();
                         self.stack.push(constant.clone());
                     }
+                    op::NIL => self.stack.push(Value::Nil),
+                    op::TRUE => self.stack.push(Value::Bool(true)),
+                    op::FALSE => self.stack.push(Value::Bool(false)),
+
+                    // unary operations
+                    op::NEGATE => {
+                        let value = self.pop();
+                        self.stack.push(value.negate()?);
+                    }
+                    op::NOT => {
+                        let value = self.pop();
+                        self.stack.push((!value.is_truthy()).into());
+                    }
+
+                    // binary operations
                     op::ADD => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                        let (a, b) = self.pop2();
                         self.stack.push(a.add(&b)?.into());
                     }
                     op::SUBTRACT => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                        let (a, b) = self.pop2();
                         self.stack.push(a.sub(&b)?.into());
                     }
                     op::MULTIPLY => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                        let (a, b) = self.pop2();
                         self.stack.push(a.mul(&b)?.into());
                     }
                     op::DIVIDE => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                        let (a, b) = self.pop2();
                         self.stack.push(a.div(&b)?.into());
                     }
-                    op::NEGATE => {
-                        let value = self.stack.pop().unwrap();
-                        self.stack.push(value.negate()?);
-                    }
-                    op::NIL => {
-                        self.stack.push(Value::Nil);
-                    }
-                    op::TRUE => {
-                        self.stack.push(Value::Bool(true));
-                    }
-                    op::FALSE => {
-                        self.stack.push(Value::Bool(false));
-                    }
-                    op::NOT => {
-                        let value = self.stack.pop().unwrap();
-                        self.stack.push((!value.is_truthy()).into());
-                    }
                     op::EQUAL => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                        let (a, b) = self.pop2();
                         self.stack.push(a.equals(&b).into());
                     }
                     op::GREATER => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                        let (a, b) = self.pop2();
                         self.stack.push((a.compare(&b)? == Comp::Greater).into());
                     }
                     op::LESS => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                        let (a, b) = self.pop2();
                         self.stack.push((a.compare(&b)? == Comp::Lesser).into());
                     }
+
                     op::RETURN => {
                         if let Some(value) = self.stack.pop() {
                             println!("{value:?}");
                         }
                         return Ok(());
                     }
+
                     _ => panic!("unknown operation: {op}"),
                 }
             } else {
@@ -148,6 +141,16 @@ impl VM {
         } else {
             None
         }
+    }
+
+    fn pop(&mut self) -> Value {
+        self.stack.pop().unwrap()
+    }
+
+    fn pop2(&mut self) -> (Value, Value) {
+        let b = self.pop();
+        let a = self.pop();
+        (a, b)
     }
 
     fn debug_ip(&self) {
