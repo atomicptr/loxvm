@@ -28,6 +28,7 @@ pub enum Op {
     Print,
     Jump,
     JumpIfFalse,
+    Loop,
 
     // keep this last (or edit From<u8>)
     Return,

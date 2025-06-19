@@ -202,6 +202,19 @@ impl Compiler {
         chunk.patch(offset + 1, (jump & 0xFF) as u8);
     }
 
+    fn emit_loop(&mut self, loop_start: usize) {
+        self.emit_byte(Op::Loop.into());
+
+        let offset = self.chunk.as_ref().unwrap().len() - loop_start + 2;
+
+        if offset > u16::MAX.into() {
+            panic!("loop body too large");
+        }
+
+        self.emit_byte(((offset >> 8) & 0xFF) as u8);
+        self.emit_byte((offset & 0xFF) as u8);
+    }
+
     pub fn advance(&mut self) -> Result<(), ScannerError> {
         self.previous = self.current;
         self.current = Some(self.scanner.scan()?);
@@ -451,6 +464,8 @@ impl Compiler {
             Ok(())
         } else if self.consume_is(TokenType::If) {
             self.if_stmt()
+        } else if self.consume_is(TokenType::While) {
+            self.while_stmt()
         } else {
             self.expression_stmt()
         }
@@ -547,6 +562,39 @@ impl Compiler {
         }
 
         self.patch_jump(else_jump);
+
+        Ok(())
+    }
+
+    fn while_stmt(&mut self) -> ParseResult {
+        let loop_start = self.chunk.as_ref().unwrap().len();
+
+        if !self.consume_is(TokenType::LParen) {
+            return Err(CompileError::ExpectedChar(
+                '(',
+                "while".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        self.expression()?;
+
+        if !self.consume_is(TokenType::RParen) {
+            return Err(CompileError::ExpectedChar(
+                ')',
+                "condition".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        let exit_jump = self.emit_jump(Op::JumpIfFalse);
+        self.emit_byte(Op::Pop.into());
+        self.statement()?;
+
+        self.emit_loop(loop_start);
+
+        self.patch_jump(exit_jump);
+        self.emit_byte(Op::Pop.into());
 
         Ok(())
     }

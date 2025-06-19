@@ -170,6 +170,10 @@ impl VM {
                             self.ip += offset as usize;
                         }
                     }
+                    Op::Loop => {
+                        let offset = self.read_u16().unwrap();
+                        self.ip -= offset as usize;
+                    }
 
                     Op::Return => {
                         return Ok(());

@@ -86,6 +86,7 @@ impl Chunk {
             Op::SetLocal => self.debug_op_byte(op, offset),
             Op::Jump => self.debug_op_jump(op, 1, offset),
             Op::JumpIfFalse => self.debug_op_jump(op, 1, offset),
+            Op::Loop => self.debug_op_jump(op, -1, offset),
             op => self.debug_op_simple(op, offset),
         }
     }
