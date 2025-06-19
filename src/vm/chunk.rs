@@ -67,7 +67,7 @@ impl Chunk {
             .get_line(offset)
             .expect(format!("error: could not access line offset: {offset}").as_str());
 
-        print!("{offset:04} ");
+        print!("\x1b[32;2m{offset:04} ");
 
         if offset > 0 && line == self.get_line(offset - 1).unwrap() {
             print!("   | ");
@@ -92,7 +92,7 @@ impl Chunk {
     }
 
     fn debug_op_simple(&self, op: Op, offset: usize) -> usize {
-        println!("{:<16}", op.name());
+        println!("{:<16}\x1b[0m", op.name());
         offset + 1
     }
 
@@ -107,7 +107,7 @@ impl Chunk {
             .get(constant.clone() as usize)
             .expect(format!("error: could not access constant offset: {constant}").as_str());
 
-        println!("{:<16} {constant:>4} {value:?}", op.name());
+        println!("{:<16} {constant:>4} {value:?}\x1b[0m", op.name());
 
         offset + 2
     }
@@ -118,7 +118,7 @@ impl Chunk {
             .get(offset + 1)
             .expect(format!("error: could not access offset: {}", offset + 1).as_str());
 
-        println!("{:<16} {slot:>4}", op.name());
+        println!("{:<16} {slot:>4}\x1b[0m", op.name());
 
         offset + 1
     }
@@ -129,7 +129,7 @@ impl Chunk {
         let jump = a << 8 | b;
 
         println!(
-            "{:<16}    {offset:04} -> {:04}",
+            "{:<16}    {offset:04} -> {:04}\x1b[0m",
             op.name(),
             offset as i32 + 3 + sign * jump as i32,
         );

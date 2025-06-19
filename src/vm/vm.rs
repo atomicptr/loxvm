@@ -238,7 +238,10 @@ impl VM {
             return;
         }
 
-        println!("--->      STACK:              {:?}", self.stack);
+        println!(
+            "\x1b[34;2m--->      STACK:              {:?}\x1b[0m",
+            self.stack
+        );
 
         if let Some(chunk) = self.chunk.as_ref() {
             chunk.debug_op(self.ip);
