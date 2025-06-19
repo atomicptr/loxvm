@@ -89,6 +89,8 @@ enum ParseFn {
     Number,
     String,
     Var,
+    And,
+    Or,
 }
 
 #[derive(Debug, Default)]
@@ -312,6 +314,8 @@ impl Compiler {
             TokenType::LessEqual => ParseRule::infix_prec(ParseFn::Binary, Precedence::Comparison),
             TokenType::String => ParseRule::prefix(ParseFn::String),
             TokenType::Identifier => ParseRule::prefix(ParseFn::Var),
+            TokenType::And => ParseRule::infix_prec(ParseFn::And, Precedence::And),
+            TokenType::Or => ParseRule::infix_prec(ParseFn::Or, Precedence::Or),
             _ => ParseRule::default(),
         }
     }
@@ -325,6 +329,8 @@ impl Compiler {
             ParseFn::Number => self.number(),
             ParseFn::String => self.string(),
             ParseFn::Var => self.variable(can_assign),
+            ParseFn::And => self.and(),
+            ParseFn::Or => self.or(),
         }
     }
 
@@ -628,6 +634,30 @@ impl Compiler {
         }
 
         Ok(None)
+    }
+
+    fn and(&mut self) -> ParseResult {
+        let end_jump = self.emit_jump(Op::JumpIfFalse);
+
+        self.emit_byte(Op::Pop.into());
+        self.parse_precedence(Precedence::And)?;
+
+        self.patch_jump(end_jump);
+
+        Ok(())
+    }
+
+    fn or(&mut self) -> ParseResult {
+        let else_jump = self.emit_jump(Op::JumpIfFalse);
+        let end_jump = self.emit_jump(Op::Jump);
+
+        self.patch_jump(else_jump);
+        self.emit_byte(Op::Pop.into());
+
+        self.parse_precedence(Precedence::Or)?;
+        self.patch_jump(end_jump);
+
+        Ok(())
     }
 
     fn literal(&mut self) -> ParseResult {
