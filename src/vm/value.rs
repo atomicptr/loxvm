@@ -95,6 +95,14 @@ impl Value {
         }
     }
 
+    pub fn is_falsey(&self) -> bool {
+        match self {
+            Value::Bool(b) => !*b,
+            Value::Nil => true,
+            _ => false,
+        }
+    }
+
     pub fn equals(&self, other: &Value) -> bool {
         match (self, other) {
             (Value::String(a), Value::String(b)) => a == b,

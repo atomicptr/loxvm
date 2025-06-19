@@ -51,7 +51,7 @@ impl VM {
         loop {
             self.debug_ip();
 
-            if let Some(op) = self.read_byte() {
+            if let Some(op) = self.read_u8() {
                 let op = Op::from(op);
 
                 match op {
@@ -106,12 +106,12 @@ impl VM {
                         }
                     }
                     Op::GetLocal => {
-                        let slot = self.read_byte().unwrap();
+                        let slot = self.read_u8().unwrap();
                         let value = self.stack.get(slot as usize).unwrap().clone();
                         self.stack.push(value);
                     }
                     Op::SetLocal => {
-                        let slot = self.read_byte().unwrap();
+                        let slot = self.read_u8().unwrap();
                         self.stack.insert(slot as usize, self.peek().clone());
                     }
 
@@ -159,6 +159,17 @@ impl VM {
                         let value = self.pop();
                         println!("{value}");
                     }
+                    Op::Jump => {
+                        let offset = self.read_u16().unwrap();
+                        self.ip += offset as usize;
+                    }
+                    Op::JumpIfFalse => {
+                        let offset = self.read_u16().unwrap();
+
+                        if self.peek().is_falsey() {
+                            self.ip += offset as usize;
+                        }
+                    }
 
                     Op::Return => {
                         return Ok(());
@@ -172,12 +183,12 @@ impl VM {
         Ok(())
     }
 
-    fn read_byte(&mut self) -> Option<u8> {
+    fn read_u8(&mut self) -> Option<u8> {
         if let Some(chunk) = self.chunk.as_ref() {
             if self.ip >= chunk.len() {
                 None
             } else {
-                let res = chunk.read_byte(self.ip);
+                let res = chunk.read_u8(self.ip);
                 self.ip += 1;
                 res.copied()
             }
@@ -186,8 +197,15 @@ impl VM {
         }
     }
 
+    fn read_u16(&mut self) -> Option<u16> {
+        let first = self.read_u8()? as u16;
+        let second = self.read_u8()? as u16;
+
+        Some(first << 8 | second)
+    }
+
     fn read_constant(&mut self) -> Option<&Value> {
-        if let Some(index) = self.read_byte() {
+        if let Some(index) = self.read_u8() {
             let index = index.clone();
             self.chunk
                 .as_ref()

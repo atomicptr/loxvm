@@ -1,7 +1,4 @@
-use crate::vm::{
-    op::{self, Op},
-    value::{self, Value},
-};
+use crate::vm::{op::Op, value::Value};
 
 #[derive(Debug, Default)]
 pub struct Chunk {
@@ -34,12 +31,16 @@ impl Chunk {
         self.code.len()
     }
 
-    pub fn read_byte(&self, index: usize) -> Option<&u8> {
+    pub fn read_u8(&self, index: usize) -> Option<&u8> {
         self.code.get(index)
     }
 
     pub fn read_constant(&self, index: u8) -> Option<&Value> {
         self.constants.get(index as usize)
+    }
+
+    pub fn patch(&mut self, index: usize, data: u8) {
+        self.code[index] = data;
     }
 
     fn get_line(&self, offset: usize) -> Option<usize> {
@@ -83,6 +84,8 @@ impl Chunk {
             Op::DefineGlobal => self.debug_op_constant(op, offset),
             Op::GetLocal => self.debug_op_byte(op, offset),
             Op::SetLocal => self.debug_op_byte(op, offset),
+            Op::Jump => self.debug_op_jump(op, 1, offset),
+            Op::JumpIfFalse => self.debug_op_jump(op, 1, offset),
             op => self.debug_op_simple(op, offset),
         }
     }
@@ -117,6 +120,20 @@ impl Chunk {
         println!("{:<16} {slot:>4}", op.name());
 
         offset + 1
+    }
+
+    fn debug_op_jump(&self, op: Op, sign: i32, offset: usize) -> usize {
+        let a = self.read_u8(offset + 1).unwrap().clone() as usize;
+        let b = self.read_u8(offset + 2).unwrap().clone() as usize;
+        let jump = a << 8 | b;
+
+        println!(
+            "{:<16}    {offset:04} -> {:04}",
+            op.name(),
+            offset as i32 + 3 + sign * jump as i32,
+        );
+
+        offset + 3
     }
 }
 

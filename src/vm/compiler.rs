@@ -182,6 +182,24 @@ impl Compiler {
         }
     }
 
+    fn emit_jump(&mut self, op: Op) -> usize {
+        self.emit_byte(op.into());
+        self.emit_bytes(0xFF, 0xFF);
+        self.chunk.as_ref().unwrap().len() - 2
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        let jump = self.chunk.as_ref().unwrap().len() - offset - 2;
+
+        if jump > u16::MAX.into() {
+            panic!("cant jump this far");
+        }
+
+        let chunk = self.chunk.as_mut().unwrap();
+        chunk.patch(offset, ((jump >> 8) & 0xFF) as u8);
+        chunk.patch(offset + 1, (jump & 0xFF) as u8);
+    }
+
     pub fn advance(&mut self) -> Result<(), ScannerError> {
         self.previous = self.current;
         self.current = Some(self.scanner.scan()?);
@@ -425,9 +443,27 @@ impl Compiler {
             self.end_scope();
 
             Ok(())
+        } else if self.consume_is(TokenType::If) {
+            self.if_stmt()
         } else {
             self.expression_stmt()
         }
+    }
+
+    fn print_stmt(&mut self) -> ParseResult {
+        self.expression()?;
+
+        if !self.consume_is(TokenType::Semicolon) {
+            return Err(CompileError::ExpectedChar(
+                ';',
+                "value".to_string(),
+                self.current.unwrap(),
+            ));
+        }
+
+        self.emit_byte(Op::Print.into());
+
+        Ok(())
     }
 
     fn block(&mut self) -> ParseResult {
@@ -472,6 +508,43 @@ impl Compiler {
         }
     }
 
+    fn if_stmt(&mut self) -> ParseResult {
+        if !self.consume_is(TokenType::LParen) {
+            return Err(CompileError::ExpectedChar(
+                '(',
+                "if".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        self.expression()?;
+
+        if !self.consume_is(TokenType::RParen) {
+            return Err(CompileError::ExpectedChar(
+                ')',
+                "condition".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        let then_jump = self.emit_jump(Op::JumpIfFalse);
+        self.emit_byte(Op::Pop.into());
+        self.statement()?;
+
+        let else_jump = self.emit_jump(Op::Jump);
+
+        self.patch_jump(then_jump);
+        self.emit_byte(Op::Pop.into());
+
+        if self.consume_is(TokenType::Else) {
+            self.statement()?;
+        }
+
+        self.patch_jump(else_jump);
+
+        Ok(())
+    }
+
     fn expression_stmt(&mut self) -> ParseResult {
         self.expression()?;
 
@@ -484,22 +557,6 @@ impl Compiler {
         }
 
         self.emit_byte(Op::Pop.into());
-
-        Ok(())
-    }
-
-    fn print_stmt(&mut self) -> ParseResult {
-        self.expression()?;
-
-        if !self.consume_is(TokenType::Semicolon) {
-            return Err(CompileError::ExpectedChar(
-                ';',
-                "value".to_string(),
-                self.current.unwrap(),
-            ));
-        }
-
-        self.emit_byte(Op::Print.into());
 
         Ok(())
     }
