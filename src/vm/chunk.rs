@@ -81,12 +81,14 @@ impl Chunk {
             Op::GetGlobal => self.debug_op_constant(op, offset),
             Op::SetGlobal => self.debug_op_constant(op, offset),
             Op::DefineGlobal => self.debug_op_constant(op, offset),
+            Op::GetLocal => self.debug_op_byte(op, offset),
+            Op::SetLocal => self.debug_op_byte(op, offset),
             op => self.debug_op_simple(op, offset),
         }
     }
 
     fn debug_op_simple(&self, op: Op, offset: usize) -> usize {
-        println!("{:<16}", format!("{op:?}").to_uppercase());
+        println!("{:<16}", op.name());
         offset + 1
     }
 
@@ -101,12 +103,20 @@ impl Chunk {
             .get(constant.clone() as usize)
             .expect(format!("error: could not access constant offset: {constant}").as_str());
 
-        println!(
-            "{:<16} {constant:>4} {value:?}",
-            format!("{op:?}").to_uppercase()
-        );
+        println!("{:<16} {constant:>4} {value:?}", op.name());
 
         offset + 2
+    }
+
+    fn debug_op_byte(&self, op: Op, offset: usize) -> usize {
+        let slot = self
+            .code
+            .get(offset + 1)
+            .expect(format!("error: could not access offset: {}", offset + 1).as_str());
+
+        println!("{:<16} {slot:>4}", op.name());
+
+        offset + 1
     }
 }
 

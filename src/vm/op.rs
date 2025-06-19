@@ -9,6 +9,8 @@ pub enum Op {
     GetGlobal,
     SetGlobal,
     DefineGlobal,
+    GetLocal,
+    SetLocal,
 
     // unary operations
     Not,
@@ -42,5 +44,21 @@ impl From<u8> for Op {
         }
 
         unsafe { std::mem::transmute(value) }
+    }
+}
+
+impl Op {
+    pub fn name(&self) -> String {
+        let s: String = format!("{self:?}")
+            .chars()
+            .map(|c| {
+                if c.is_uppercase() {
+                    format!("_{c}")
+                } else {
+                    c.to_uppercase().to_string()
+                }
+            })
+            .collect();
+        s.trim_matches('_').to_string()
     }
 }

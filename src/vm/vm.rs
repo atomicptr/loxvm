@@ -102,8 +102,17 @@ impl VM {
                             let data = self.pop();
                             self.globals.insert(name.clone(), data);
                         } else {
-                            unreachable!();
+                            unreachable!("global name: {name:?}");
                         }
+                    }
+                    Op::GetLocal => {
+                        let slot = self.read_byte().unwrap();
+                        let value = self.stack.get(slot as usize).unwrap().clone();
+                        self.stack.push(value);
+                    }
+                    Op::SetLocal => {
+                        let slot = self.read_byte().unwrap();
+                        self.stack.insert(slot as usize, self.peek().clone());
                     }
 
                     // unary operations

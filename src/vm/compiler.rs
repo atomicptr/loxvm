@@ -12,6 +12,17 @@ struct Compiler {
     chunk: Option<Chunk>,
     previous: Option<Token>,
     current: Option<Token>,
+
+    // compiler
+    locals: [Option<Local>; u8::MAX as usize],
+    local_count: usize,
+    scope_depth: usize,
+}
+
+#[derive(Debug)]
+struct Local {
+    token: Token,
+    depth: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -20,6 +31,10 @@ pub enum CompileError {
     ExpectedChar(char, String, Token),
     ExpectedName(String, Token),
     InvalidAssignmentTarget(Token),
+    TooManyLocalVars(Token),
+    VarAlreadyExists(Token),
+    ExpectedExpression(Token),
+    CantUseLocalVarInItsOwnInitializer(Token),
 }
 
 type ParseResult = Result<(), CompileError>;
@@ -111,10 +126,16 @@ impl ParseRule {
 impl Compiler {
     fn new(code: String) -> Self {
         Self {
+            // parse
             scanner: Scanner::new(code),
             chunk: None,
             previous: None,
             current: None,
+
+            // compiler
+            locals: [0; u8::MAX as usize].map(|_| None),
+            local_count: 0,
+            scope_depth: 0,
         }
     }
 
@@ -192,7 +213,8 @@ impl Compiler {
             return Ok(());
         }
 
-        panic!("expected expression");
+        // Err(CompileError::ExpectedExpression(self.previous.unwrap()))
+        panic!("NOOO")
     }
 
     fn grouping(&mut self) -> ParseResult {
@@ -318,8 +340,53 @@ impl Compiler {
         Ok(())
     }
 
+    fn declare_var(&mut self) -> ParseResult {
+        if self.scope_depth == 0 {
+            return Ok(());
+        }
+
+        let token = self.previous.unwrap().clone();
+
+        for local in self.locals.iter().rev() {
+            if let Some(local) = local {
+                if let Some(depth) = local.depth {
+                    if depth < self.scope_depth {
+                        break;
+                    }
+                }
+
+                if self.identifier_equals(&token, &local.token) {
+                    return Err(CompileError::VarAlreadyExists(token));
+                }
+            }
+        }
+
+        self.add_local(token)
+    }
+
     fn define_var(&mut self, global: u8) {
+        if self.scope_depth > 0 {
+            self.mark_initialized();
+            return;
+        }
+
         self.emit_bytes(Op::DefineGlobal.into(), global);
+    }
+
+    fn mark_initialized(&mut self) {
+        self.locals[self.local_count - 1].as_mut().unwrap().depth = Some(self.scope_depth);
+    }
+
+    fn add_local(&mut self, token: Token) -> ParseResult {
+        if self.local_count >= u8::MAX as usize {
+            return Err(CompileError::TooManyLocalVars(token));
+        }
+
+        let local = Local { token, depth: None };
+        self.locals[self.local_count] = Some(local);
+        self.local_count += 1;
+
+        Ok(())
     }
 
     fn parse_variable(&mut self) -> Result<u8, CompileError> {
@@ -328,6 +395,12 @@ impl Compiler {
                 "variable".to_string(),
                 self.previous.unwrap(),
             ));
+        }
+
+        self.declare_var()?;
+
+        if self.scope_depth > 0 {
+            return Ok(0);
         }
 
         let token = self.previous.unwrap();
@@ -345,10 +418,58 @@ impl Compiler {
 
     fn statement(&mut self) -> ParseResult {
         if self.consume_is(TokenType::Print) {
-            return self.print_stmt();
+            self.print_stmt()
+        } else if self.consume_is(TokenType::LBrace) {
+            self.begin_scope();
+            self.block()?;
+            self.end_scope();
+
+            Ok(())
+        } else {
+            self.expression_stmt()
+        }
+    }
+
+    fn block(&mut self) -> ParseResult {
+        while !self.current_is(TokenType::RBrace) && !self.current_is(TokenType::Eof) {
+            self.declaration()?;
         }
 
-        self.expression_stmt()
+        if !self.consume_is(TokenType::RBrace) {
+            Err(CompileError::ExpectedChar(
+                ';',
+                "block".to_string(),
+                self.previous.unwrap(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn begin_scope(&mut self) {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self) {
+        self.scope_depth -= 1;
+
+        while self.local_count > 0 {
+            let local = self
+                .locals
+                .get(self.local_count - 1)
+                .unwrap()
+                .as_ref()
+                .unwrap();
+
+            if let Some(depth) = local.depth {
+                if depth < self.scope_depth {
+                    break;
+                }
+            }
+
+            self.emit_byte(Op::Pop.into());
+            self.local_count -= 1;
+        }
     }
 
     fn expression_stmt(&mut self) -> ParseResult {
@@ -411,22 +532,45 @@ impl Compiler {
     }
 
     fn variable(&mut self, can_assign: bool) -> ParseResult {
-        self.named_variable(&self.previous.unwrap(), can_assign)?;
+        self.named_var(&self.previous.unwrap(), can_assign)?;
         Ok(())
     }
 
-    fn named_variable(&mut self, token: &Token, can_assign: bool) -> ParseResult {
-        let arg = self.identifier_constant(token);
+    fn named_var(&mut self, token: &Token, can_assign: bool) -> ParseResult {
+        let (arg, op_get, op_set) = if let Some(arg) = self.resolve_local(token)? {
+            (arg, Op::GetLocal, Op::SetLocal)
+        } else {
+            let arg = self.identifier_constant(token);
+            (arg, Op::GetGlobal, Op::SetGlobal)
+        };
 
         if can_assign && self.consume_is(TokenType::Equal) {
             self.expression()?;
-            self.emit_bytes(Op::SetGlobal.into(), arg);
+            self.emit_bytes(op_set.into(), arg);
             return Ok(());
         }
 
-        self.emit_bytes(Op::GetGlobal.into(), arg);
+        self.emit_bytes(op_get.into(), arg);
 
         Ok(())
+    }
+
+    fn resolve_local(&mut self, token: &Token) -> Result<Option<u8>, CompileError> {
+        for i in (0..self.local_count).rev() {
+            let local = self.locals.get(i).unwrap().as_ref().unwrap();
+
+            if self.identifier_equals(token, &local.token) {
+                if local.depth.is_none() {
+                    return Err(CompileError::CantUseLocalVarInItsOwnInitializer(
+                        local.token,
+                    ));
+                }
+
+                return Ok(Some(i as u8));
+            }
+        }
+
+        Ok(None)
     }
 
     fn literal(&mut self) -> ParseResult {
@@ -489,6 +633,12 @@ impl Compiler {
         } else {
             false
         }
+    }
+
+    fn identifier_equals(&self, a: &Token, b: &Token) -> bool {
+        a.token_type == b.token_type
+            && a.length == b.length
+            && self.scanner.token_data(a) == self.scanner.token_data(b)
     }
 }
 
