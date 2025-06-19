@@ -1,6 +1,6 @@
 use crate::vm::{
     op::{self, Op},
-    value::Value,
+    value::{self, Value},
 };
 
 #[derive(Debug, Default)]
@@ -19,12 +19,15 @@ impl Chunk {
     pub fn push_constant(&mut self, value: Value, line: usize) {
         self.push(Op::Constant.into(), line.clone());
 
-        self.constants.push(value);
-        let index = (self.constants.len() - 1)
-            .try_into()
-            .expect("err: too many constants defined");
-
+        let index = self.make_constant(value);
         self.push(index, line);
+    }
+
+    pub fn make_constant(&mut self, value: Value) -> u8 {
+        self.constants.push(value);
+        (self.constants.len() - 1)
+            .try_into()
+            .expect("err: too many constants defined")
     }
 
     pub fn len(&self) -> usize {
@@ -74,7 +77,10 @@ impl Chunk {
         let op = Op::from(*op);
 
         match op {
-            Op::Constant => self.debug_op_constant(offset),
+            Op::Constant => self.debug_op_constant(op, offset),
+            Op::GetGlobal => self.debug_op_constant(op, offset),
+            Op::SetGlobal => self.debug_op_constant(op, offset),
+            Op::DefineGlobal => self.debug_op_constant(op, offset),
             op => self.debug_op_simple(op, offset),
         }
     }
@@ -84,7 +90,7 @@ impl Chunk {
         offset + 1
     }
 
-    fn debug_op_constant(&self, offset: usize) -> usize {
+    fn debug_op_constant(&self, op: Op, offset: usize) -> usize {
         let constant = self
             .code
             .get(offset + 1)
@@ -95,7 +101,10 @@ impl Chunk {
             .get(constant.clone() as usize)
             .expect(format!("error: could not access constant offset: {constant}").as_str());
 
-        println!("{name:<16} {constant:>4} {value:?}", name = "CONSTANT");
+        println!(
+            "{:<16} {constant:>4} {value:?}",
+            format!("{op:?}").to_uppercase()
+        );
 
         offset + 2
     }

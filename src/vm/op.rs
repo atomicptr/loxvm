@@ -5,6 +5,10 @@ pub enum Op {
     Nil,
     True,
     False,
+    Pop,
+    GetGlobal,
+    SetGlobal,
+    DefineGlobal,
 
     // unary operations
     Not,
@@ -19,6 +23,9 @@ pub enum Op {
     Greater,
     Less,
 
+    Print,
+
+    // keep this last (or edit From<u8>)
     Return,
 }
 

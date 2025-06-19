@@ -34,12 +34,12 @@ fn run_prompt() {
 
         stdin().read_line(&mut s).expect("could not read string");
 
-        let source = s.trim().to_string();
+        let mut source = s.trim().to_string();
 
         // an unfinished statement
-        // if !source.ends_with(";") && !source.ends_with("}") {
-        //     source += ";";
-        // }
+        if !source.ends_with(";") && !source.ends_with("}") {
+            source += ";";
+        }
 
         match run(&mut vm, &source) {
             // Ok(val) => println!("{}", val),

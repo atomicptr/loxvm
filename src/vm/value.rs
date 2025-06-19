@@ -98,7 +98,7 @@ impl Value {
     pub fn equals(&self, other: &Value) -> bool {
         match (self, other) {
             (Value::String(a), Value::String(b)) => a == b,
-            (Value::Number(a), Value::Number(b)) => a == b,
+            (Value::Number(a), Value::Number(b)) => (a - b).abs() < f64::EPSILON,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Nil, Value::Nil) => true,
             (_, Value::Nil) => false,

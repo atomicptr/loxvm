@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::vm::{
     chunk::Chunk,
     compiler::{CompileError, compile},
@@ -12,13 +14,14 @@ pub struct VM {
     chunk: Option<Chunk>,
     ip: usize,
     stack: Vec<Value>,
+    globals: HashMap<String, Value>,
 }
 
 #[derive(Debug)]
 pub enum VMError {
     ValueError(ValueError),
     CompileError(CompileError),
-    RuntimeError,
+    UndefinedVariable(String),
 }
 
 impl From<ValueError> for VMError {
@@ -62,6 +65,46 @@ impl VM {
                     Op::Nil => self.stack.push(Value::Nil),
                     Op::True => self.stack.push(Value::Bool(true)),
                     Op::False => self.stack.push(Value::Bool(false)),
+                    Op::Pop => {
+                        self.pop();
+                    }
+                    Op::GetGlobal => {
+                        let name = self.read_constant().unwrap().clone();
+
+                        if let Value::String(name) = name {
+                            if let Some(value) = self.globals.get(&name) {
+                                self.stack.push(value.clone());
+                            } else {
+                                return Err(VMError::UndefinedVariable(name));
+                            }
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                    Op::SetGlobal => {
+                        let name = self.read_constant().unwrap().clone();
+
+                        if let Value::String(name) = name {
+                            if let Some(_) = self.globals.get(&name) {
+                                let value = self.peek().clone();
+                                self.globals.insert(name, value);
+                            } else {
+                                return Err(VMError::UndefinedVariable(name));
+                            }
+                        } else {
+                            unreachable!();
+                        }
+                    }
+                    Op::DefineGlobal => {
+                        let name = self.read_constant().unwrap().clone();
+
+                        if let Value::String(name) = name {
+                            let data = self.pop();
+                            self.globals.insert(name.clone(), data);
+                        } else {
+                            unreachable!();
+                        }
+                    }
 
                     // unary operations
                     Op::Negate => {
@@ -103,10 +146,12 @@ impl VM {
                         self.stack.push((a.compare(&b)? == Comp::Lesser).into());
                     }
 
+                    Op::Print => {
+                        let value = self.pop();
+                        println!("{value}");
+                    }
+
                     Op::Return => {
-                        if let Some(value) = self.stack.pop() {
-                            println!("{value:?}");
-                        }
                         return Ok(());
                     }
                 }
@@ -141,6 +186,10 @@ impl VM {
         } else {
             None
         }
+    }
+
+    fn peek(&self) -> &Value {
+        self.stack.last().unwrap()
     }
 
     fn pop(&mut self) -> Value {
