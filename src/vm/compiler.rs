@@ -22,7 +22,7 @@ struct Compiler {
 #[derive(Debug)]
 struct Local {
     token: Token,
-    depth: Option<usize>,
+    depth: i32,
 }
 
 #[derive(Debug)]
@@ -390,10 +390,8 @@ impl Compiler {
         for i in (0..self.local_count).rev() {
             let local = self.locals.get(i).unwrap().as_ref().unwrap();
 
-            if let Some(depth) = local.depth {
-                if depth < self.scope_depth {
-                    break;
-                }
+            if local.depth != -1 && local.depth < self.scope_depth as i32 {
+                break;
             }
 
             if self.identifier_equals(&token, &local.token) {
@@ -414,7 +412,11 @@ impl Compiler {
     }
 
     fn mark_initialized(&mut self) {
-        self.locals[self.local_count - 1].as_mut().unwrap().depth = Some(self.scope_depth);
+        if self.scope_depth == 0 {
+            return;
+        }
+
+        self.locals[self.local_count - 1].as_mut().unwrap().depth = self.scope_depth as i32;
     }
 
     fn add_local(&mut self, token: Token) -> ParseResult {
@@ -422,7 +424,7 @@ impl Compiler {
             return Err(CompileError::TooManyLocalVars(token));
         }
 
-        let local = Local { token, depth: None };
+        let local = Local { token, depth: -1 };
         self.locals[self.local_count] = Some(local);
         self.local_count += 1;
 
@@ -515,20 +517,7 @@ impl Compiler {
     fn end_scope(&mut self) {
         self.scope_depth -= 1;
 
-        while self.local_count > 0 {
-            let local = self
-                .locals
-                .get(self.local_count - 1)
-                .unwrap()
-                .as_ref()
-                .unwrap();
-
-            if let Some(depth) = local.depth {
-                if depth < self.scope_depth {
-                    break;
-                }
-            }
-
+        while self.local_count > 0 && self.last_local().depth > self.scope_depth as i32 {
             self.emit_byte(Op::Pop.into());
             self.local_count -= 1;
         }
@@ -755,7 +744,7 @@ impl Compiler {
             let local = self.locals.get(i).unwrap().as_ref().unwrap();
 
             if self.identifier_equals(token, &local.token) {
-                if local.depth.is_none() {
+                if local.depth == -1 {
                     return Err(CompileError::CantUseLocalVarInItsOwnInitializer(
                         local.token,
                     ));
@@ -766,6 +755,14 @@ impl Compiler {
         }
 
         Ok(None)
+    }
+
+    fn last_local(&self) -> &Local {
+        self.locals
+            .get(self.local_count - 1)
+            .unwrap()
+            .as_ref()
+            .unwrap()
     }
 
     fn and(&mut self) -> ParseResult {
