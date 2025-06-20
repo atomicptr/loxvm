@@ -187,11 +187,11 @@ impl Compiler {
     fn emit_jump(&mut self, op: Op) -> usize {
         self.emit_byte(op.into());
         self.emit_bytes(0xFF, 0xFF);
-        self.chunk.as_ref().unwrap().len() - 2
+        self.current_pos() - 2
     }
 
     fn patch_jump(&mut self, offset: usize) {
-        let jump = self.chunk.as_ref().unwrap().len() - offset - 2;
+        let jump = self.current_pos() - offset - 2;
 
         if jump > u16::MAX.into() {
             panic!("cant jump this far");
@@ -205,7 +205,7 @@ impl Compiler {
     fn emit_loop(&mut self, loop_start: usize) {
         self.emit_byte(Op::Loop.into());
 
-        let offset = self.chunk.as_ref().unwrap().len() - loop_start + 2;
+        let offset = self.current_pos() - loop_start + 2;
 
         if offset > u16::MAX.into() {
             panic!("loop body too large");
@@ -213,6 +213,10 @@ impl Compiler {
 
         self.emit_byte(((offset >> 8) & 0xFF) as u8);
         self.emit_byte((offset & 0xFF) as u8);
+    }
+
+    fn current_pos(&self) -> usize {
+        self.chunk.as_ref().unwrap().len()
     }
 
     pub fn advance(&mut self) -> Result<(), ScannerError> {
@@ -234,7 +238,7 @@ impl Compiler {
 
                 let infix = self.rule(self.previous.unwrap().token_type).infix.unwrap();
 
-                self.apply_parsefn(infix, false)?;
+                self.apply_parsefn(infix, can_assign)?;
             }
 
             if can_assign && self.consume_is(TokenType::Equal) {
@@ -246,8 +250,7 @@ impl Compiler {
             return Ok(());
         }
 
-        // Err(CompileError::ExpectedExpression(self.previous.unwrap()))
-        panic!("NOOO")
+        Err(CompileError::ExpectedExpression(self.previous.unwrap()))
     }
 
     fn grouping(&mut self) -> ParseResult {
@@ -384,17 +387,17 @@ impl Compiler {
 
         let token = self.previous.unwrap().clone();
 
-        for local in self.locals.iter().rev() {
-            if let Some(local) = local {
-                if let Some(depth) = local.depth {
-                    if depth < self.scope_depth {
-                        break;
-                    }
-                }
+        for i in (0..self.local_count).rev() {
+            let local = self.locals.get(i).unwrap().as_ref().unwrap();
 
-                if self.identifier_equals(&token, &local.token) {
-                    return Err(CompileError::VarAlreadyExists(token));
+            if let Some(depth) = local.depth {
+                if depth < self.scope_depth {
+                    break;
                 }
+            }
+
+            if self.identifier_equals(&token, &local.token) {
+                return Err(CompileError::VarAlreadyExists(token));
             }
         }
 
@@ -466,6 +469,8 @@ impl Compiler {
             self.if_stmt()
         } else if self.consume_is(TokenType::While) {
             self.while_stmt()
+        } else if self.consume_is(TokenType::For) {
+            self.for_stmt()
         } else {
             self.expression_stmt()
         }
@@ -567,7 +572,7 @@ impl Compiler {
     }
 
     fn while_stmt(&mut self) -> ParseResult {
-        let loop_start = self.chunk.as_ref().unwrap().len();
+        let loop_start = self.current_pos();
 
         if !self.consume_is(TokenType::LParen) {
             return Err(CompileError::ExpectedChar(
@@ -595,6 +600,85 @@ impl Compiler {
 
         self.patch_jump(exit_jump);
         self.emit_byte(Op::Pop.into());
+
+        Ok(())
+    }
+
+    fn for_stmt(&mut self) -> ParseResult {
+        self.begin_scope();
+
+        if !self.consume_is(TokenType::LParen) {
+            return Err(CompileError::ExpectedChar(
+                '(',
+                "for".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        // initializer
+        if self.consume_is(TokenType::Semicolon) {
+            // no initializer
+        } else if self.consume_is(TokenType::Var) {
+            self.var_decl()?;
+        } else {
+            self.expression_stmt()?;
+        }
+
+        let loop_start = self.current_pos();
+
+        // condition
+        let exit_jump = if !self.consume_is(TokenType::Semicolon) {
+            self.expression()?;
+
+            if !self.consume_is(TokenType::Semicolon) {
+                return Err(CompileError::ExpectedChar(
+                    ';',
+                    "loop condition".to_string(),
+                    self.previous.unwrap(),
+                ));
+            }
+
+            let exit = self.emit_jump(Op::JumpIfFalse);
+            self.emit_byte(Op::Pop.into());
+
+            Some(exit)
+        } else {
+            None
+        };
+
+        // increment clause
+        let loop_start = if !self.consume_is(TokenType::RParen) {
+            let body_jump = self.emit_jump(Op::Jump);
+            let incr_start = self.current_pos();
+
+            self.expression()?;
+            self.emit_byte(Op::Pop.into());
+
+            if !self.consume_is(TokenType::RParen) {
+                return Err(CompileError::ExpectedChar(
+                    ')',
+                    "for clause".to_string(),
+                    self.previous.unwrap(),
+                ));
+            }
+
+            self.emit_loop(loop_start);
+            self.patch_jump(body_jump);
+
+            incr_start
+        } else {
+            loop_start
+        };
+
+        self.statement()?;
+        self.emit_loop(loop_start);
+
+        if let Some(exit_jump) = exit_jump {
+            self.patch_jump(exit_jump);
+            self.emit_byte(Op::Pop.into());
+        }
+
+        self.end_scope();
 
         Ok(())
     }
