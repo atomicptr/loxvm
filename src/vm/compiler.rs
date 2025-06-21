@@ -469,6 +469,8 @@ impl Compiler {
             Ok(())
         } else if self.consume_is(TokenType::If) {
             self.if_stmt()
+        } else if self.consume_is(TokenType::Switch) {
+            self.switch_stmt()
         } else if self.consume_is(TokenType::While) {
             self.while_stmt()
         } else if self.consume_is(TokenType::For) {
@@ -556,6 +558,102 @@ impl Compiler {
         }
 
         self.patch_jump(else_jump);
+
+        Ok(())
+    }
+
+    fn switch_stmt(&mut self) -> ParseResult {
+        if !self.consume_is(TokenType::LParen) {
+            return Err(CompileError::ExpectedChar(
+                '(',
+                "switch".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        self.expression()?;
+
+        if !self.consume_is(TokenType::RParen) {
+            return Err(CompileError::ExpectedChar(
+                ')',
+                "condition".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        if !self.consume_is(TokenType::LBrace) {
+            return Err(CompileError::ExpectedChar(
+                '{',
+                "switch condition".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        let mut end_jumps = vec![];
+
+        while self.consume_is(TokenType::Case) {
+            // duplicate the condition result
+            self.emit_byte(Op::Dup.into());
+
+            // evaluate the expression
+            self.expression()?;
+
+            // check if the condition and expression are equal
+            self.emit_byte(Op::Equal.into());
+
+            // add a "jump if false" to skip if its false
+            let case_jump = self.emit_jump(Op::JumpIfFalse);
+            self.emit_byte(Op::Pop.into()); // pop the comparison result
+
+            if !self.consume_is(TokenType::Colon) {
+                return Err(CompileError::ExpectedChar(
+                    ':',
+                    "case expression".to_string(),
+                    self.current.unwrap(),
+                ));
+            }
+
+            // process the statement
+            self.statement()?;
+
+            // we managed to successfully execute the statement, pop the initial result
+            self.emit_byte(Op::Pop.into());
+
+            // jump to the end after statement
+            let end_jump = self.emit_jump(Op::Jump);
+
+            // collect jump point, we later need to patch them all
+            end_jumps.push(end_jump);
+
+            // patch the jump target
+            self.patch_jump(case_jump);
+            self.emit_byte(Op::Pop.into()); // pop the comparison result
+        }
+
+        if self.consume_is(TokenType::Default) {
+            if !self.consume_is(TokenType::Colon) {
+                return Err(CompileError::ExpectedChar(
+                    ':',
+                    "default case".to_string(),
+                    self.current.unwrap(),
+                ));
+            }
+
+            self.statement()?;
+        }
+
+        if !self.consume_is(TokenType::RBrace) {
+            return Err(CompileError::ExpectedChar(
+                '}',
+                "switch body".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        // patch all the emitted case end jumps
+        for end_jump in end_jumps {
+            self.patch_jump(end_jump);
+        }
 
         Ok(())
     }

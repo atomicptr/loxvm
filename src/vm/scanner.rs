@@ -43,6 +43,9 @@ pub enum TokenType {
     Continue,
     QuestionMark,
     Colon,
+    Switch,
+    Case,
+    Default,
     Error,
 }
 
@@ -265,8 +268,10 @@ impl Scanner {
             return match self.token_data(&token).as_str() {
                 "and" => self.make_token(TokenType::And),
                 "break" => self.make_token(TokenType::Break),
+                "case" => self.make_token(TokenType::Case),
                 "class" => self.make_token(TokenType::Class),
                 "continue" => self.make_token(TokenType::Continue),
+                "default" => self.make_token(TokenType::Default),
                 "else" => self.make_token(TokenType::Else),
                 "false" => self.make_token(TokenType::False),
                 "for" => self.make_token(TokenType::For),
@@ -277,6 +282,7 @@ impl Scanner {
                 "print" => self.make_token(TokenType::Print),
                 "return" => self.make_token(TokenType::Return),
                 "super" => self.make_token(TokenType::Super),
+                "switch" => self.make_token(TokenType::Switch),
                 "this" => self.make_token(TokenType::This),
                 "true" => self.make_token(TokenType::True),
                 "var" => self.make_token(TokenType::Var),

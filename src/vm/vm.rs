@@ -68,6 +68,9 @@ impl VM {
                     Op::Pop => {
                         self.pop();
                     }
+                    Op::Dup => {
+                        self.stack.push(self.peek().clone());
+                    }
                     Op::GetGlobal => {
                         let name = self.read_constant().unwrap().clone();
 

@@ -107,7 +107,7 @@ impl Chunk {
             .get(constant.clone() as usize)
             .expect(format!("error: could not access constant offset: {constant}").as_str());
 
-        println!("{:<16} {constant:>4} {value:?}\x1b[0m", op.name());
+        println!("{:<16}    {constant:04} {value:?}\x1b[0m", op.name());
 
         offset + 2
     }

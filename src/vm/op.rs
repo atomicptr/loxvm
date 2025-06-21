@@ -6,6 +6,7 @@ pub enum Op {
     True,
     False,
     Pop,
+    Dup,
     GetGlobal,
     SetGlobal,
     DefineGlobal,
