@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::vm::{
     chunk::Chunk,
     compiler::{CompileError, compile},
-    op::{self, Op},
+    op::Op,
     value::{Comp, Value, ValueError},
 };
 
@@ -156,6 +156,10 @@ impl VM {
                     Op::Less => {
                         let (a, b) = self.pop2();
                         self.stack.push((a.compare(&b)? == Comp::Lesser).into());
+                    }
+                    Op::Modulo => {
+                        let (a, b) = self.pop2();
+                        self.stack.push(a.modulo(&b)?);
                     }
 
                     Op::Print => {

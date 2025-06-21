@@ -25,6 +25,7 @@ pub enum Op {
     Equal,
     Greater,
     Less,
+    Modulo,
 
     Print,
     Jump,

@@ -157,6 +157,13 @@ impl Value {
         }
     }
 
+    pub fn modulo(&self, other: &Value) -> Result<Value, ValueError> {
+        match (self, other) {
+            (Value::Number(a), Value::Number(b)) => Ok((a % b).into()),
+            (a, b) => Err(ValueError::BinaryOpInvalidTypes(a.clone(), b.clone())),
+        }
+    }
+
     pub fn negate(&self) -> Result<Value, ValueError> {
         match self {
             Value::Number(num) => Ok((-num).into()),

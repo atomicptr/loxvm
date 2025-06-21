@@ -298,6 +298,7 @@ impl Compiler {
             TokenType::GreaterEqual => self.emit_bytes(Op::Less.into(), Op::Not.into()),
             TokenType::Less => self.emit_byte(Op::Less.into()),
             TokenType::LessEqual => self.emit_bytes(Op::Greater.into(), Op::Not.into()),
+            TokenType::Modulo => self.emit_byte(Op::Modulo.into()),
             _ => unreachable!(),
         }
 
@@ -315,6 +316,7 @@ impl Compiler {
             TokenType::Plus => ParseRule::infix_prec(ParseFn::Binary, Precedence::Term),
             TokenType::Slash => ParseRule::infix_prec(ParseFn::Binary, Precedence::Factor),
             TokenType::Star => ParseRule::infix_prec(ParseFn::Binary, Precedence::Factor),
+            TokenType::Modulo => ParseRule::infix_prec(ParseFn::Binary, Precedence::Factor),
             TokenType::Number => ParseRule::prefix(ParseFn::Number),
             TokenType::True => ParseRule::prefix(ParseFn::Literal),
             TokenType::False => ParseRule::prefix(ParseFn::Literal),
