@@ -17,6 +17,7 @@ struct Compiler {
     locals: [Option<Local>; u8::MAX as usize],
     local_count: usize,
     scope_depth: usize,
+    loop_starts: Vec<usize>,
 }
 
 #[derive(Debug)]
@@ -35,6 +36,7 @@ pub enum CompileError {
     VarAlreadyExists(Token),
     ExpectedExpression(Token),
     CantUseLocalVarInItsOwnInitializer(Token),
+    IllegalStatement(String, Token),
 }
 
 type ParseResult = Result<(), CompileError>;
@@ -138,6 +140,7 @@ impl Compiler {
             locals: [0; u8::MAX as usize].map(|_| None),
             local_count: 0,
             scope_depth: 0,
+            loop_starts: vec![],
         }
     }
 
@@ -477,6 +480,8 @@ impl Compiler {
             self.while_stmt()
         } else if self.consume_is(TokenType::For) {
             self.for_stmt()
+        } else if self.consume_is(TokenType::Continue) {
+            self.continue_stmt()
         } else {
             self.expression_stmt()
         }
@@ -662,6 +667,7 @@ impl Compiler {
 
     fn while_stmt(&mut self) -> ParseResult {
         let loop_start = self.current_pos();
+        self.loop_starts.push(loop_start);
 
         if !self.consume_is(TokenType::LParen) {
             return Err(CompileError::ExpectedChar(
@@ -686,6 +692,7 @@ impl Compiler {
         self.statement()?;
 
         self.emit_loop(loop_start);
+        self.loop_starts.pop();
 
         self.patch_jump(exit_jump);
         self.emit_byte(Op::Pop.into());
@@ -758,9 +765,12 @@ impl Compiler {
         } else {
             loop_start
         };
+        self.loop_starts.push(loop_start);
 
         self.statement()?;
+
         self.emit_loop(loop_start);
+        self.loop_starts.pop();
 
         if let Some(exit_jump) = exit_jump {
             self.patch_jump(exit_jump);
@@ -770,6 +780,25 @@ impl Compiler {
         self.end_scope();
 
         Ok(())
+    }
+
+    fn continue_stmt(&mut self) -> ParseResult {
+        let stmt = self.previous.unwrap();
+
+        if !self.consume_is(TokenType::Semicolon) {
+            return Err(CompileError::ExpectedChar(
+                ';',
+                "continue statement".to_string(),
+                self.current.unwrap(),
+            ));
+        }
+
+        if let Some(loop_start) = self.loop_starts.pop() {
+            self.emit_loop(loop_start);
+            Ok(())
+        } else {
+            Err(CompileError::IllegalStatement("continue".to_string(), stmt))
+        }
     }
 
     fn expression_stmt(&mut self) -> ParseResult {
