@@ -17,14 +17,19 @@ struct Compiler {
     locals: [Option<Local>; u8::MAX as usize],
     local_count: usize,
     scope_depth: usize,
-    loop_starts: Vec<usize>,
-    loop_exits: Vec<Vec<usize>>,
+    loop_scopes: Vec<LoopScope>,
 }
 
 #[derive(Debug)]
 struct Local {
     token: Token,
     depth: i32,
+}
+
+#[derive(Debug)]
+struct LoopScope {
+    start: usize,
+    exit_jumps: Vec<usize>,
 }
 
 #[derive(Debug)]
@@ -141,8 +146,7 @@ impl Compiler {
             locals: [0; u8::MAX as usize].map(|_| None),
             local_count: 0,
             scope_depth: 0,
-            loop_starts: vec![],
-            loop_exits: vec![],
+            loop_scopes: Vec::new(),
         }
     }
 
@@ -210,22 +214,12 @@ impl Compiler {
         chunk.patch(jump_op_pos + 1, (target & 0xFF) as u8);
     }
 
-    fn patch_exits(&mut self) {
-        // patch loop exists
-        let exits: Vec<usize> = self
-            .loop_exits
-            .last()
-            .unwrap()
-            .iter()
-            .map(|exit| exit.clone())
-            .collect();
+    fn pop_loop_scope(&mut self) {
+        let loop_scope = self.loop_scopes.pop().unwrap();
 
-        for exit in exits {
-            self.patch_jump(exit.clone());
+        for exit in loop_scope.exit_jumps {
+            self.patch_jump(exit);
         }
-
-        // remove loop exits scope
-        self.loop_exits.pop();
     }
 
     fn emit_loop(&mut self, loop_start: usize) {
@@ -692,8 +686,10 @@ impl Compiler {
 
     fn while_stmt(&mut self) -> ParseResult {
         let loop_start = self.current_pos();
-        self.loop_starts.push(loop_start);
-        self.loop_exits.push(Vec::new());
+        self.loop_scopes.push(LoopScope {
+            start: loop_start,
+            exit_jumps: Vec::new(),
+        });
 
         if !self.consume_is(TokenType::LParen) {
             return Err(CompileError::ExpectedChar(
@@ -720,10 +716,8 @@ impl Compiler {
         self.emit_loop(loop_start);
         self.emit_byte(Op::Pop.into());
 
-        self.loop_starts.pop();
-
         self.patch_jump(exit_jump);
-        self.patch_exits();
+        self.pop_loop_scope();
 
         Ok(())
     }
@@ -802,13 +796,14 @@ impl Compiler {
             pre_condition
         };
 
-        self.loop_starts.push(loop_start);
-        self.loop_exits.push(Vec::new());
+        self.loop_scopes.push(LoopScope {
+            start: loop_start,
+            exit_jumps: Vec::new(),
+        });
 
         self.statement()?;
 
         self.emit_loop(loop_start);
-        self.loop_starts.pop();
 
         // we reached the end of the loop, patch that as the exit
         if let Some(exit_jump) = exit_jump {
@@ -816,7 +811,7 @@ impl Compiler {
             self.emit_byte(Op::Pop.into());
         }
 
-        self.patch_exits();
+        self.pop_loop_scope();
 
         self.end_scope();
 
@@ -834,8 +829,8 @@ impl Compiler {
             ));
         }
 
-        if let Some(loop_start) = self.loop_starts.pop() {
-            self.emit_loop(loop_start);
+        if let Some(loop_start) = self.loop_scopes.last() {
+            self.emit_loop(loop_start.start);
             Ok(())
         } else {
             Err(CompileError::IllegalStatement("continue".to_string(), stmt))
@@ -853,12 +848,16 @@ impl Compiler {
             ));
         }
 
-        if self.loop_exits.last().is_none() {
+        if self.loop_scopes.last().is_none() {
             return Err(CompileError::IllegalStatement("break".to_string(), stmt));
         }
 
         let jump_exit = self.emit_jump(Op::Jump);
-        self.loop_exits.last_mut().unwrap().push(jump_exit);
+        self.loop_scopes
+            .last_mut()
+            .unwrap()
+            .exit_jumps
+            .push(jump_exit);
 
         Ok(())
     }
