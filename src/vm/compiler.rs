@@ -720,12 +720,14 @@ impl Compiler {
             self.expression_stmt()?;
         }
 
-        let loop_start = self.current_pos();
+        let pre_condition = self.current_pos();
 
         // condition
         let exit_jump = if !self.consume_is(TokenType::Semicolon) {
+            // evaluate the condition
             self.expression()?;
 
+            // need a ';' after condition
             if !self.consume_is(TokenType::Semicolon) {
                 return Err(CompileError::ExpectedChar(
                     ';',
@@ -734,12 +736,13 @@ impl Compiler {
                 ));
             }
 
-            let exit = self.emit_jump(Op::JumpIfFalse);
-            self.emit_byte(Op::Pop.into());
+            // prepare jump to exit if it was false
+            let exit_jump = self.emit_jump(Op::JumpIfFalse);
+            self.emit_byte(Op::Pop.into()); // pop the condition result
 
-            Some(exit)
+            Some(exit_jump)
         } else {
-            None
+            None // no condition, this is an endless loop
         };
 
         // increment clause
@@ -747,8 +750,9 @@ impl Compiler {
             let body_jump = self.emit_jump(Op::Jump);
             let incr_start = self.current_pos();
 
+            // evaluate increment expression
             self.expression()?;
-            self.emit_byte(Op::Pop.into());
+            self.emit_byte(Op::Pop.into()); // remove result again
 
             if !self.consume_is(TokenType::RParen) {
                 return Err(CompileError::ExpectedChar(
@@ -758,13 +762,18 @@ impl Compiler {
                 ));
             }
 
-            self.emit_loop(loop_start);
+            // jump to before the condition, to evaluate the condition
+            self.emit_loop(pre_condition);
+
+            // patch the body jump
             self.patch_jump(body_jump);
 
             incr_start
         } else {
-            loop_start
+            // we dont have an increment step, jump back to the condition
+            pre_condition
         };
+
         self.loop_starts.push(loop_start);
 
         self.statement()?;
@@ -772,6 +781,7 @@ impl Compiler {
         self.emit_loop(loop_start);
         self.loop_starts.pop();
 
+        // we reached the end of the loop, patch that as the exit
         if let Some(exit_jump) = exit_jump {
             self.patch_jump(exit_jump);
             self.emit_byte(Op::Pop.into());

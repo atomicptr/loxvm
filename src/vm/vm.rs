@@ -60,23 +60,23 @@ impl VM {
                             .read_constant()
                             .expect("could not read constant")
                             .clone();
-                        self.stack.push(constant.clone());
+                        self.push(constant.clone());
                     }
-                    Op::Nil => self.stack.push(Value::Nil),
-                    Op::True => self.stack.push(Value::Bool(true)),
-                    Op::False => self.stack.push(Value::Bool(false)),
+                    Op::Nil => self.push(Value::Nil),
+                    Op::True => self.push(Value::Bool(true)),
+                    Op::False => self.push(Value::Bool(false)),
                     Op::Pop => {
                         self.pop();
                     }
                     Op::Dup => {
-                        self.stack.push(self.peek().clone());
+                        self.push(self.peek().clone());
                     }
                     Op::GetGlobal => {
                         let name = self.read_constant().unwrap().clone();
 
                         if let Value::String(name) = name {
                             if let Some(value) = self.globals.get(&name) {
-                                self.stack.push(value.clone());
+                                self.push(value.clone());
                             } else {
                                 return Err(VMError::UndefinedVariable(name));
                             }
@@ -111,55 +111,55 @@ impl VM {
                     Op::GetLocal => {
                         let slot = self.read_u8().unwrap();
                         let value = self.stack.get(slot as usize).unwrap().clone();
-                        self.stack.push(value);
+                        self.push(value);
                     }
                     Op::SetLocal => {
                         let slot = self.read_u8().unwrap();
-                        self.stack.insert(slot as usize, self.peek().clone());
+                        self.stack[slot as usize] = self.peek().clone();
                     }
 
                     // unary operations
                     Op::Negate => {
                         let value = self.pop();
-                        self.stack.push(value.negate()?);
+                        self.push(value.negate()?);
                     }
                     Op::Not => {
                         let value = self.pop();
-                        self.stack.push((!value.is_truthy()).into());
+                        self.push((!value.is_truthy()).into());
                     }
 
                     // binary operations
                     Op::Add => {
                         let (a, b) = self.pop2();
-                        self.stack.push(a.add(&b)?.into());
+                        self.push(a.add(&b)?.into());
                     }
                     Op::Subtract => {
                         let (a, b) = self.pop2();
-                        self.stack.push(a.sub(&b)?.into());
+                        self.push(a.sub(&b)?.into());
                     }
                     Op::Multiply => {
                         let (a, b) = self.pop2();
-                        self.stack.push(a.mul(&b)?.into());
+                        self.push(a.mul(&b)?.into());
                     }
                     Op::Divide => {
                         let (a, b) = self.pop2();
-                        self.stack.push(a.div(&b)?.into());
+                        self.push(a.div(&b)?.into());
                     }
                     Op::Equal => {
                         let (a, b) = self.pop2();
-                        self.stack.push(a.equals(&b).into());
+                        self.push(a.equals(&b).into());
                     }
                     Op::Greater => {
                         let (a, b) = self.pop2();
-                        self.stack.push((a.compare(&b)? == Comp::Greater).into());
+                        self.push((a.compare(&b)? == Comp::Greater).into());
                     }
                     Op::Less => {
                         let (a, b) = self.pop2();
-                        self.stack.push((a.compare(&b)? == Comp::Lesser).into());
+                        self.push((a.compare(&b)? == Comp::Lesser).into());
                     }
                     Op::Modulo => {
                         let (a, b) = self.pop2();
-                        self.stack.push(a.modulo(&b)?);
+                        self.push(a.modulo(&b)?);
                     }
 
                     Op::Print => {
@@ -228,6 +228,14 @@ impl VM {
 
     fn peek(&self) -> &Value {
         self.stack.last().unwrap()
+    }
+
+    fn push(&mut self, value: Value) {
+        if self.stack.len() > u8::MAX as usize {
+            panic!("stack overflow");
+        }
+
+        self.stack.push(value);
     }
 
     fn pop(&mut self) -> Value {
