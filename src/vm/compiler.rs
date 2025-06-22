@@ -673,6 +673,8 @@ impl Compiler {
     }
 
     fn end_ctx(&mut self) -> Function {
+        self.emit_return();
+
         if DEBUG_MODE {
             self.chunk()
                 .debug(self.ctx.fun.as_ref().unwrap().name.as_ref().unwrap());
