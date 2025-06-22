@@ -390,13 +390,21 @@ impl VM {
         }
 
         println!(
-            "\x1b[34;2m--->      STACK:              {}: [{}]\x1b[0m",
-            self.frame().stack_base_index,
+            "\x1b[34;2m--->      STACK:              [{}\x1b[0m\x1b[34;2m] ({})\x1b[0m",
             self.stack
                 .iter()
-                .map(|var| format!("{var}"))
+                .enumerate()
+                .map(|(i, var)| format!(
+                    "{}{var}",
+                    if i >= self.frame().stack_base_index {
+                        "\x1b[33;1m"
+                    } else {
+                        ""
+                    }
+                ))
                 .collect::<Vec<String>>()
-                .join(", ")
+                .join(", "),
+            self.frame().fun.name.as_ref().unwrap()
         );
 
         self.frame().fun.chunk.debug_op(self.frame().ip);

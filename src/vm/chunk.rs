@@ -62,6 +62,10 @@ impl Chunk {
     }
 
     pub fn debug_op(&self, offset: usize) -> usize {
+        if offset >= self.code.len() {
+            return offset;
+        }
+
         let op = self
             .code
             .get(offset)
