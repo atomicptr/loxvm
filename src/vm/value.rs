@@ -1,10 +1,16 @@
 use std::fmt::Display;
 
+use crate::vm::{chunk::Chunk, vm::RuntimeError};
+
+pub type NativeFn = fn(Vec<Value>) -> Result<Value, RuntimeError>;
+
 #[derive(Debug, Clone)]
 pub enum Value {
     String(String),
     Number(f64),
     Bool(bool),
+    Function(Function),
+    NativeFunction(NativeFn, usize),
     Nil,
 }
 
@@ -15,6 +21,19 @@ impl Display for Value {
             Value::Number(num) => format!("{num}"),
             Value::Bool(b) => format!("{b}"),
             Value::Nil => format!("nil"),
+            Value::Function(fun) => {
+                format!(
+                    "<fn{}/{}()>",
+                    fun.name
+                        .as_ref()
+                        .and_then(|name| Some(format!(" {name}")))
+                        .unwrap_or_default(),
+                    fun.arity
+                )
+            }
+            Value::NativeFunction(fun, arity) => {
+                format!("<native fn {fun:?}/{arity}()>")
+            }
         };
 
         write!(f, "{res}")?;
@@ -88,10 +107,9 @@ pub enum Comp {
 impl Value {
     pub fn is_truthy(&self) -> bool {
         match self {
-            Value::String(_) => true,
-            Value::Number(_) => true,
             Value::Bool(b) => *b,
             Value::Nil => false,
+            _ => true,
         }
     }
 
@@ -168,6 +186,23 @@ impl Value {
         match self {
             Value::Number(num) => Ok((-num).into()),
             _ => Err(ValueError::UnaryOpInvalidTypes(self.clone())),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Function {
+    pub name: Option<String>,
+    pub arity: usize,
+    pub chunk: Chunk,
+}
+
+impl Function {
+    pub fn new(name: String, arity: usize) -> Self {
+        Self {
+            name: Some(name),
+            arity,
+            chunk: Chunk::default(),
         }
     }
 }

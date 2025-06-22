@@ -4,8 +4,12 @@ use std::{
     process::exit,
 };
 
-use crate::vm::vm::{VM, VMError};
+use crate::vm::{
+    value::Value,
+    vm::{VM, VMError},
+};
 
+mod constants;
 mod vm;
 
 fn main() {
@@ -22,7 +26,7 @@ fn main() {
 }
 
 fn run_prompt() {
-    let mut vm = VM::default();
+    let mut vm = VM::new();
 
     println!("Welcome to \x1b[1mloxvm\x1b[0m!");
 
@@ -42,8 +46,7 @@ fn run_prompt() {
         }
 
         match run(&mut vm, &source) {
-            // Ok(val) => println!("{}", val),
-            Ok(_) => {}
+            Ok(val) => println!("{}", val),
             Err(err) => println!("ERR: {err:?}"),
         }
     }
@@ -52,7 +55,7 @@ fn run_prompt() {
 fn run_file(file: &String) {
     let source = fs::read_to_string(file).expect("error reading file");
 
-    let mut vm = VM::default();
+    let mut vm = VM::new();
 
     match run(&mut vm, &source) {
         Ok(_) => {}
@@ -60,8 +63,6 @@ fn run_file(file: &String) {
     }
 }
 
-fn run(vm: &mut VM, code: &String) -> Result<(), VMError> {
-    vm.run(code.clone())?;
-
-    Ok(())
+fn run(vm: &mut VM, code: &String) -> Result<Value, VMError> {
+    vm.run(code.clone())
 }

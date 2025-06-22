@@ -58,7 +58,7 @@ pub struct Token {
     pub length: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scanner {
     code: Vec<char>,
     current: usize,

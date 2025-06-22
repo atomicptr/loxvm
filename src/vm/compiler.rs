@@ -1,21 +1,30 @@
-use crate::vm::{
-    chunk::Chunk,
-    op::Op,
-    scanner::{Scanner, ScannerError, Token, TokenType},
-    value::Value,
+use crate::{
+    constants::DEBUG_MODE,
+    vm::{
+        chunk::Chunk,
+        op::Op,
+        scanner::{Scanner, ScannerError, Token, TokenType},
+        value::{Function, Value},
+    },
 };
 
 #[derive(Debug)]
 struct Compiler {
     // parser
     scanner: Scanner,
-    chunk: Option<Chunk>,
     previous: Option<Token>,
     current: Option<Token>,
 
     // compiler
-    locals: [Option<Local>; u8::MAX as usize],
-    local_count: usize,
+    ctx: Context,
+}
+
+#[derive(Debug)]
+struct Context {
+    parent: Option<Box<Context>>,
+    fun: Option<Function>,
+    fun_type: FunctionType,
+    locals: Vec<Local>,
     scope_depth: usize,
     loop_scopes: Vec<LoopScope>,
 }
@@ -30,6 +39,12 @@ struct Local {
 struct LoopScope {
     start: usize,
     exit_jumps: Vec<usize>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum FunctionType {
+    Script,
+    Function,
 }
 
 #[derive(Debug)]
@@ -99,6 +114,7 @@ enum ParseFn {
     Var,
     And,
     Or,
+    Call,
 }
 
 #[derive(Debug, Default)]
@@ -138,42 +154,54 @@ impl Compiler {
         Self {
             // parse
             scanner: Scanner::new(code),
-            chunk: None,
             previous: None,
             current: None,
 
             // compiler
-            locals: [0; u8::MAX as usize].map(|_| None),
-            local_count: 0,
-            scope_depth: 0,
-            loop_scopes: Vec::new(),
+            ctx: Context {
+                parent: None,
+
+                locals: vec![Local {
+                    token: Token {
+                        token_type: TokenType::Default,
+                        line: 0,
+                        start: 0,
+                        length: 0,
+                    },
+                    depth: 0,
+                }],
+                scope_depth: 0,
+                loop_scopes: Vec::new(),
+
+                fun_type: FunctionType::Script,
+                fun: Some(Function::new("<script>".to_string(), 0)),
+            },
         }
     }
 
-    fn compile(&mut self) -> Result<Chunk, CompileError> {
-        self.chunk = Some(Chunk::default());
-
+    fn compile(&mut self) -> Result<Function, CompileError> {
         self.advance()?;
 
         while !self.current_is(TokenType::Eof) {
             self.declaration()?;
         }
 
-        self.emit_byte(Op::Return.into());
+        self.emit_return();
 
-        Ok(self.chunk.take().unwrap())
+        let fun = self.ctx.fun.take().unwrap();
+
+        if DEBUG_MODE {
+            fun.chunk
+                .debug(fun.name.as_ref().unwrap_or(&"???".to_string()).as_str());
+        }
+
+        Ok(fun)
     }
 
     fn emit_byte(&mut self, byte: u8) {
-        if let Some(chunk) = &mut self.chunk {
-            chunk.push(
-                byte,
-                self.previous
-                    .as_ref()
-                    .and_then(|p| Some(p.line))
-                    .unwrap_or_default(),
-            );
-        }
+        let prev = self.previous.clone();
+        self.chunk_mut()
+            .push(byte, prev.and_then(|p| Some(p.line)).unwrap_or_default());
     }
 
     fn emit_bytes(&mut self, b1: u8, b2: u8) {
@@ -182,15 +210,12 @@ impl Compiler {
     }
 
     fn emit_constant(&mut self, constant: Value) {
-        if let Some(chunk) = &mut self.chunk {
-            chunk.push_constant(
-                constant,
-                self.previous
-                    .as_ref()
-                    .and_then(|p| Some(p.line))
-                    .unwrap_or_default(),
-            );
-        }
+        let line = self
+            .previous
+            .clone()
+            .and_then(|p| Some(p.line))
+            .unwrap_or_default();
+        self.chunk_mut().push_constant(constant, line);
     }
 
     fn emit_jump(&mut self, op: Op) -> usize {
@@ -209,13 +234,14 @@ impl Compiler {
             panic!("cant jump this far");
         }
 
-        let chunk = self.chunk.as_mut().unwrap();
-        chunk.patch(jump_op_pos, ((target >> 8) & 0xFF) as u8);
-        chunk.patch(jump_op_pos + 1, (target & 0xFF) as u8);
+        self.chunk_mut()
+            .patch(jump_op_pos, ((target >> 8) & 0xFF) as u8);
+        self.chunk_mut()
+            .patch(jump_op_pos + 1, (target & 0xFF) as u8);
     }
 
     fn pop_loop_scope(&mut self) {
-        let loop_scope = self.loop_scopes.pop().unwrap();
+        let loop_scope = self.ctx.loop_scopes.pop().unwrap();
 
         for exit in loop_scope.exit_jumps {
             self.patch_jump(exit);
@@ -235,8 +261,13 @@ impl Compiler {
         self.emit_byte((offset & 0xFF) as u8);
     }
 
+    fn emit_return(&mut self) {
+        self.emit_byte(Op::Nil.into());
+        self.emit_byte(Op::Return.into());
+    }
+
     fn current_pos(&self) -> usize {
-        self.chunk.as_ref().unwrap().len()
+        self.chunk().len()
     }
 
     pub fn advance(&mut self) -> Result<(), ScannerError> {
@@ -327,7 +358,11 @@ impl Compiler {
 
     fn rule(&mut self, token_type: TokenType) -> ParseRule {
         match token_type {
-            TokenType::LParen => ParseRule::prefix(ParseFn::Grouping),
+            TokenType::LParen => ParseRule::new(
+                Some(ParseFn::Grouping),
+                Some(ParseFn::Call),
+                Precedence::Call,
+            ),
             TokenType::Minus => ParseRule::new(
                 Some(ParseFn::Unary),
                 Some(ParseFn::Binary),
@@ -369,19 +404,101 @@ impl Compiler {
             ParseFn::Var => self.variable(can_assign),
             ParseFn::And => self.and(),
             ParseFn::Or => self.or(),
+            ParseFn::Call => self.call(),
         }
     }
 
     fn declaration(&mut self) -> ParseResult {
-        if self.consume_is(TokenType::Var) {
+        if self.consume_is(TokenType::Fun) {
+            self.fun_decl()
+        } else if self.consume_is(TokenType::Var) {
             self.var_decl()
         } else {
             self.statement()
         }
     }
 
+    fn fun_decl(&mut self) -> ParseResult {
+        let global = self.parse_variable("function")?;
+        self.mark_initialized();
+        self.function(FunctionType::Function)?;
+        self.define_var(global);
+
+        Ok(())
+    }
+
+    fn function(&mut self, fun_type: FunctionType) -> ParseResult {
+        let name = self.scanner.token_data(self.previous.as_ref().unwrap());
+
+        let ctx = Context {
+            parent: None,
+            fun_type,
+            fun: Some(Function::new(name, 0)),
+            locals: Vec::new(),
+            loop_scopes: Vec::new(),
+            scope_depth: self.ctx.scope_depth + 1,
+        };
+        self.begin_ctx(ctx);
+
+        self.ctx.locals.push(Local {
+            token: Token {
+                token_type: TokenType::Default,
+                line: 0,
+                start: 0,
+                length: 0,
+            },
+            depth: 0,
+        });
+
+        if !self.consume_is(TokenType::LParen) {
+            return Err(CompileError::ExpectedChar(
+                '(',
+                "function name".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        if !self.current_is(TokenType::RParen) {
+            let mut arity = 1;
+            let constant = self.parse_variable("parameter")?;
+            self.define_var(constant);
+
+            while self.consume_is(TokenType::Comma) {
+                arity += 1;
+                let constant = self.parse_variable("parameter")?;
+                self.define_var(constant);
+            }
+
+            let fun = self.ctx.fun.as_mut().unwrap();
+            fun.arity = arity;
+        }
+
+        if !self.consume_is(TokenType::RParen) {
+            return Err(CompileError::ExpectedChar(
+                ')',
+                "parameters".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        if !self.consume_is(TokenType::LBrace) {
+            return Err(CompileError::ExpectedChar(
+                '{',
+                "function body".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        self.block()?;
+
+        let fun = self.end_ctx();
+        self.emit_constant(Value::Function(fun));
+
+        Ok(())
+    }
+
     fn var_decl(&mut self) -> ParseResult {
-        let global = self.parse_variable()?;
+        let global = self.parse_variable("variable")?;
 
         if self.consume_is(TokenType::Equal) {
             self.expression()?;
@@ -403,16 +520,16 @@ impl Compiler {
     }
 
     fn declare_var(&mut self) -> ParseResult {
-        if self.scope_depth == 0 {
+        if self.ctx.scope_depth == 0 {
             return Ok(());
         }
 
         let token = self.previous.unwrap().clone();
 
-        for i in (0..self.local_count).rev() {
-            let local = self.locals.get(i).unwrap().as_ref().unwrap();
+        for i in (0..self.ctx.locals.len()).rev() {
+            let local = self.ctx.locals.get(i).unwrap();
 
-            if local.depth != -1 && local.depth < self.scope_depth as i32 {
+            if local.depth != -1 && local.depth < self.ctx.scope_depth as i32 {
                 break;
             }
 
@@ -425,7 +542,7 @@ impl Compiler {
     }
 
     fn define_var(&mut self, global: u8) {
-        if self.scope_depth > 0 {
+        if self.ctx.scope_depth > 0 {
             self.mark_initialized();
             return;
         }
@@ -434,36 +551,34 @@ impl Compiler {
     }
 
     fn mark_initialized(&mut self) {
-        if self.scope_depth == 0 {
+        if self.ctx.scope_depth == 0 {
             return;
         }
 
-        self.locals[self.local_count - 1].as_mut().unwrap().depth = self.scope_depth as i32;
+        self.ctx.locals.last_mut().unwrap().depth = self.ctx.scope_depth as i32;
     }
 
     fn add_local(&mut self, token: Token) -> ParseResult {
-        if self.local_count >= u8::MAX as usize {
+        if self.ctx.locals.len() >= u8::MAX as usize {
             return Err(CompileError::TooManyLocalVars(token));
         }
 
-        let local = Local { token, depth: -1 };
-        self.locals[self.local_count] = Some(local);
-        self.local_count += 1;
+        self.ctx.locals.push(Local { token, depth: -1 });
 
         Ok(())
     }
 
-    fn parse_variable(&mut self) -> Result<u8, CompileError> {
+    fn parse_variable(&mut self, name: &str) -> Result<u8, CompileError> {
         if !self.consume_is(TokenType::Identifier) {
             return Err(CompileError::ExpectedName(
-                "variable".to_string(),
+                name.to_string(),
                 self.previous.unwrap(),
             ));
         }
 
         self.declare_var()?;
 
-        if self.scope_depth > 0 {
+        if self.ctx.scope_depth > 0 {
             return Ok(0);
         }
 
@@ -474,10 +589,7 @@ impl Compiler {
     fn identifier_constant(&mut self, token: &Token) -> u8 {
         let token_data = self.scanner.token_data(token);
 
-        self.chunk
-            .as_mut()
-            .unwrap()
-            .make_constant(token_data.into())
+        self.chunk_mut().make_constant(token_data.into())
     }
 
     fn statement(&mut self) -> ParseResult {
@@ -501,6 +613,8 @@ impl Compiler {
             self.continue_stmt()
         } else if self.consume_is(TokenType::Break) {
             self.break_stmt()
+        } else if self.consume_is(TokenType::Return) {
+            self.return_stmt()
         } else {
             self.expression_stmt()
         }
@@ -539,16 +653,32 @@ impl Compiler {
     }
 
     fn begin_scope(&mut self) {
-        self.scope_depth += 1;
+        self.ctx.scope_depth += 1;
     }
 
     fn end_scope(&mut self) {
-        self.scope_depth -= 1;
+        self.ctx.scope_depth -= 1;
 
-        while self.local_count > 0 && self.last_local().depth > self.scope_depth as i32 {
+        while self.ctx.locals.len() > 0 && self.last_local().depth > self.ctx.scope_depth as i32 {
+            self.ctx.locals.pop();
             self.emit_byte(Op::Pop.into());
-            self.local_count -= 1;
         }
+    }
+
+    fn begin_ctx(&mut self, ctx: Context) {
+        let ctx = std::mem::replace(&mut self.ctx, ctx);
+        self.ctx.parent = Some(Box::new(ctx));
+    }
+
+    fn end_ctx(&mut self) -> Function {
+        if DEBUG_MODE {
+            self.chunk()
+                .debug(self.ctx.fun.as_ref().unwrap().name.as_ref().unwrap());
+        }
+
+        let parent = self.ctx.parent.take().unwrap();
+        let mut ctx = std::mem::replace(&mut self.ctx, *parent);
+        ctx.fun.take().unwrap()
     }
 
     fn if_stmt(&mut self) -> ParseResult {
@@ -686,7 +816,7 @@ impl Compiler {
 
     fn while_stmt(&mut self) -> ParseResult {
         let loop_start = self.current_pos();
-        self.loop_scopes.push(LoopScope {
+        self.ctx.loop_scopes.push(LoopScope {
             start: loop_start,
             exit_jumps: Vec::new(),
         });
@@ -796,7 +926,7 @@ impl Compiler {
             pre_condition
         };
 
-        self.loop_scopes.push(LoopScope {
+        self.ctx.loop_scopes.push(LoopScope {
             start: loop_start,
             exit_jumps: Vec::new(),
         });
@@ -829,7 +959,7 @@ impl Compiler {
             ));
         }
 
-        if let Some(loop_start) = self.loop_scopes.last() {
+        if let Some(loop_start) = self.ctx.loop_scopes.last() {
             self.emit_loop(loop_start.start);
             Ok(())
         } else {
@@ -848,16 +978,41 @@ impl Compiler {
             ));
         }
 
-        if self.loop_scopes.last().is_none() {
+        if self.ctx.loop_scopes.last().is_none() {
             return Err(CompileError::IllegalStatement("break".to_string(), stmt));
         }
 
         let jump_exit = self.emit_jump(Op::Jump);
-        self.loop_scopes
+        self.ctx
+            .loop_scopes
             .last_mut()
             .unwrap()
             .exit_jumps
             .push(jump_exit);
+
+        Ok(())
+    }
+
+    fn return_stmt(&mut self) -> ParseResult {
+        if self.ctx.fun_type == FunctionType::Script {
+            panic!("cant return from top level code");
+        }
+
+        if self.consume_is(TokenType::Semicolon) {
+            self.emit_return();
+        } else {
+            self.expression()?;
+
+            if !self.consume_is(TokenType::Semicolon) {
+                return Err(CompileError::ExpectedChar(
+                    ';',
+                    "break statement".to_string(),
+                    self.current.unwrap(),
+                ));
+            }
+
+            self.emit_byte(Op::Return.into());
+        }
 
         Ok(())
     }
@@ -930,8 +1085,8 @@ impl Compiler {
     }
 
     fn resolve_local(&mut self, token: &Token) -> Result<Option<u8>, CompileError> {
-        for i in (0..self.local_count).rev() {
-            let local = self.locals.get(i).unwrap().as_ref().unwrap();
+        for i in (0..self.ctx.locals.len()).rev() {
+            let local = self.ctx.locals.get(i).unwrap();
 
             if self.identifier_equals(token, &local.token) {
                 if local.depth == -1 {
@@ -948,11 +1103,7 @@ impl Compiler {
     }
 
     fn last_local(&self) -> &Local {
-        self.locals
-            .get(self.local_count - 1)
-            .unwrap()
-            .as_ref()
-            .unwrap()
+        self.ctx.locals.last().unwrap()
     }
 
     fn and(&mut self) -> ParseResult {
@@ -977,6 +1128,40 @@ impl Compiler {
         self.patch_jump(end_jump);
 
         Ok(())
+    }
+
+    fn call(&mut self) -> ParseResult {
+        let arg_count = self.argument_list()?;
+        self.emit_bytes(Op::Call.into(), arg_count);
+        Ok(())
+    }
+
+    fn argument_list(&mut self) -> Result<u8, CompileError> {
+        let mut arg_count = 0;
+
+        if !self.current_is(TokenType::RParen) {
+            self.expression()?;
+            arg_count += 1;
+
+            while self.consume_is(TokenType::Comma) {
+                if arg_count >= 255 {
+                    panic!("too many arguments");
+                }
+
+                self.expression()?;
+                arg_count += 1;
+            }
+        }
+
+        if !self.consume_is(TokenType::RParen) {
+            return Err(CompileError::ExpectedChar(
+                ')',
+                "arguments".to_string(),
+                self.previous.unwrap(),
+            ));
+        }
+
+        Ok(arg_count)
     }
 
     fn literal(&mut self) -> ParseResult {
@@ -1046,9 +1231,17 @@ impl Compiler {
             && a.length == b.length
             && self.scanner.token_data(a) == self.scanner.token_data(b)
     }
+
+    fn chunk(&self) -> &Chunk {
+        &self.ctx.fun.as_ref().unwrap().chunk
+    }
+
+    fn chunk_mut(&mut self) -> &mut Chunk {
+        &mut self.ctx.fun.as_mut().unwrap().chunk
+    }
 }
 
-pub fn compile(code: String) -> Result<Chunk, CompileError> {
+pub fn compile(code: String) -> Result<Function, CompileError> {
     let mut compiler = Compiler::new(code);
     compiler.compile()
 }

@@ -1,6 +1,6 @@
 use crate::vm::{op::Op, value::Value};
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Chunk {
     code: Vec<u8>,
     constants: Vec<Value>,
@@ -43,11 +43,12 @@ impl Chunk {
         self.code[index] = data;
     }
 
-    fn get_line(&self, offset: usize) -> Option<usize> {
+    pub fn get_line(&self, offset: usize) -> Option<usize> {
         self.lines.get(offset)
     }
 
     pub fn debug(&self, name: &str) {
+        println!("");
         println!("========= {name} =========");
 
         let mut offset = 0;
@@ -55,6 +56,9 @@ impl Chunk {
         while offset < self.code.len() {
             offset = self.debug_op(offset);
         }
+
+        println!("=========={}==========", "=".repeat(name.len()));
+        println!("");
     }
 
     pub fn debug_op(&self, offset: usize) -> usize {
@@ -87,6 +91,7 @@ impl Chunk {
             Op::Jump => self.debug_op_jump(op, 1, offset),
             Op::JumpIfFalse => self.debug_op_jump(op, 1, offset),
             Op::Loop => self.debug_op_jump(op, -1, offset),
+            Op::Call => self.debug_op_byte(op, offset),
             op => self.debug_op_simple(op, offset),
         }
     }
@@ -107,7 +112,7 @@ impl Chunk {
             .get(constant.clone() as usize)
             .expect(format!("error: could not access constant offset: {constant}").as_str());
 
-        println!("{:<16}    {constant:04} {value:?}\x1b[0m", op.name());
+        println!("{:<16}    {constant:04} {value}\x1b[0m", op.name());
 
         offset + 2
     }
@@ -120,7 +125,7 @@ impl Chunk {
 
         println!("{:<16} {slot:>4}\x1b[0m", op.name());
 
-        offset + 1
+        offset + 2
     }
 
     fn debug_op_jump(&self, op: Op, sign: i32, offset: usize) -> usize {
@@ -139,7 +144,7 @@ impl Chunk {
 }
 
 // Simple Run-Length Encoding for line numbers
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 struct LineVec {
     data: Vec<(usize, u8)>,
 }
