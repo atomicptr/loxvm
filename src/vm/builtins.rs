@@ -16,9 +16,9 @@ pub fn lox_tostring(args: Vec<Value>) -> Result<Value, RuntimeError> {
 
     match value {
         Value::String(s) => Ok(Value::String(s)),
-        Value::Number(n) => Ok(Value::String(format!("{n}"))),
-        Value::Bool(b) => Ok(Value::String(format!("{b}"))),
-        Value::Nil => Ok(Value::String("nil".to_string())),
+        Value::Number(n) => Ok(Value::String(format!("{n}").into())),
+        Value::Bool(b) => Ok(Value::String(format!("{b}").into())),
+        Value::Nil => Ok(Value::String("nil".to_string().into())),
         _ => todo!(),
     }
 }

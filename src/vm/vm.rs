@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
     constants::DEBUG_MODE,
@@ -20,7 +20,7 @@ pub struct VM {
 
 #[derive(Debug)]
 struct CallFrame {
-    fun: Function,
+    fun: Rc<Function>,
     ip: usize,
     stack_base_index: usize,
 }
@@ -62,8 +62,8 @@ pub enum RuntimeError {
 impl VM {
     pub fn new() -> Self {
         let mut vm = Self {
-            stack: Vec::new(),
-            frames: Vec::new(),
+            stack: Vec::with_capacity(u8::MAX as usize),
+            frames: Vec::with_capacity(u8::MAX as usize),
             globals: HashMap::new(),
         };
 
@@ -78,10 +78,14 @@ impl VM {
     pub fn run(&mut self, code: String) -> Result<Value, VMError> {
         let fun = compile(code)?;
 
+        let fun = Rc::new(fun);
+
         self.stack.push(Value::Function(fun.clone()));
         self.call_function(fun, 0)?;
 
-        self.interpret()
+        let res = self.interpret();
+
+        res
     }
 
     fn interpret(&mut self) -> Result<Value, VMError> {
@@ -97,7 +101,7 @@ impl VM {
                             .read_constant()
                             .expect("could not read constant")
                             .clone();
-                        self.push(constant.clone());
+                        self.push(constant);
                     }
                     Op::Nil => self.push(Value::Nil),
                     Op::True => self.push(Value::Bool(true)),
@@ -112,10 +116,12 @@ impl VM {
                         let name = self.read_constant().unwrap().clone();
 
                         if let Value::String(name) = name {
-                            if let Some(value) = self.globals.get(&name) {
+                            if let Some(value) = self.globals.get(&*name) {
                                 self.push(value.clone());
                             } else {
-                                return Err(RuntimeError::UndefinedVariable(name).into());
+                                return Err(
+                                    RuntimeError::UndefinedVariable(name.to_string()).into()
+                                );
                             }
                         } else {
                             unreachable!();
@@ -125,11 +131,13 @@ impl VM {
                         let name = self.read_constant().unwrap().clone();
 
                         if let Value::String(name) = name {
-                            if let Some(_) = self.globals.get(&name) {
+                            if let Some(_) = self.globals.get(&*name) {
                                 let value = self.peek().clone();
-                                self.globals.insert(name, value);
+                                self.globals.insert(name.to_string(), value);
                             } else {
-                                return Err(RuntimeError::UndefinedVariable(name).into());
+                                return Err(
+                                    RuntimeError::UndefinedVariable(name.to_string()).into()
+                                );
                             }
                         } else {
                             unreachable!();
@@ -140,7 +148,7 @@ impl VM {
 
                         if let Value::String(name) = name {
                             let data = self.pop();
-                            self.globals.insert(name.clone(), data);
+                            self.globals.insert(name.to_string(), data);
                         } else {
                             unreachable!("global name: {name:?}");
                         }
@@ -227,7 +235,7 @@ impl VM {
                         let callee = self.peek_at(arity as usize).clone();
 
                         match callee {
-                            Value::Function(fun) => self.call_function(fun, arity)?,
+                            Value::Function(fun) => self.call_function(fun.clone(), arity)?,
                             Value::NativeFunction(fun, fun_arity) => {
                                 if arity != fun_arity {
                                     return Err(RuntimeError::FunArgumentCountMismatch(
@@ -277,7 +285,7 @@ impl VM {
         Ok(Value::Nil)
     }
 
-    fn call_function(&mut self, fun: Function, arity: usize) -> Result<(), RuntimeError> {
+    fn call_function(&mut self, fun: Rc<Function>, arity: usize) -> Result<(), RuntimeError> {
         if arity != fun.arity {
             self.print_stacktrace();
             return Err(RuntimeError::FunArgumentCountMismatch(arity, fun.arity));

@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
 
 use crate::vm::{chunk::Chunk, vm::RuntimeError};
 
@@ -6,10 +6,10 @@ pub type NativeFn = fn(Vec<Value>) -> Result<Value, RuntimeError>;
 
 #[derive(Debug, Clone)]
 pub enum Value {
-    String(String),
+    String(Rc<String>),
     Number(f64),
     Bool(bool),
-    Function(Function),
+    Function(Rc<Function>),
     NativeFunction(NativeFn, usize),
     Nil,
 }
@@ -62,7 +62,7 @@ impl TryInto<f64> for Value {
 
 impl From<String> for Value {
     fn from(value: String) -> Self {
-        Self::String(value)
+        Self::String(Rc::new(value))
     }
 }
 
@@ -71,7 +71,7 @@ impl TryInto<String> for Value {
 
     fn try_into(self) -> Result<String, Self::Error> {
         if let Value::String(s) = self {
-            Ok(s)
+            Ok(s.to_string())
         } else {
             Err(())
         }

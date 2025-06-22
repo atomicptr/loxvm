@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{
     constants::DEBUG_MODE,
     vm::{
@@ -492,7 +494,7 @@ impl Compiler {
         self.block()?;
 
         let fun = self.end_ctx();
-        self.emit_constant(Value::Function(fun));
+        self.emit_constant(Value::Function(Rc::new(fun)));
 
         Ok(())
     }

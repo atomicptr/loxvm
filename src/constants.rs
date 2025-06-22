@@ -1,1 +1,1 @@
-pub const DEBUG_MODE: bool = true;
+pub const DEBUG_MODE: bool = false;
