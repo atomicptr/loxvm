@@ -27,6 +27,7 @@ struct Context {
     fun: Option<Function>,
     fun_type: FunctionType,
     locals: Vec<Local>,
+    upvalues: Vec<Upvalue>,
     scope_depth: usize,
     loop_scopes: Vec<LoopScope>,
 }
@@ -41,6 +42,12 @@ struct Local {
 struct LoopScope {
     start: usize,
     exit_jumps: Vec<usize>,
+}
+
+#[derive(Debug, Clone)]
+struct Upvalue {
+    index: u8,
+    is_local: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -172,6 +179,7 @@ impl Compiler {
                     },
                     depth: 0,
                 }],
+                upvalues: Vec::new(),
                 scope_depth: 0,
                 loop_scopes: Vec::new(),
 
@@ -437,6 +445,7 @@ impl Compiler {
             fun_type,
             fun: Some(Function::new(name, 0)),
             locals: Vec::new(),
+            upvalues: Vec::new(),
             loop_scopes: Vec::new(),
             scope_depth: self.ctx.scope_depth + 1,
         };
@@ -493,8 +502,21 @@ impl Compiler {
 
         self.block()?;
 
-        let fun = self.end_ctx();
+        let (fun, upvalues) = self.end_ctx();
+
+        println!("EOF UPVALUES? {} = {:?}", fun.upvalue_count, upvalues);
+
+        self.emit_byte(Op::Closure.into());
         self.emit_constant(Value::Function(Rc::new(fun)));
+
+        for upvalue in upvalues {
+            let is_local = if upvalue.is_local { 1 } else { 0 };
+
+            println!("EMIT UPVALUE {upvalue:?}");
+
+            self.emit_byte(is_local);
+            self.emit_byte(upvalue.index);
+        }
 
         Ok(())
     }
@@ -535,7 +557,7 @@ impl Compiler {
                 break;
             }
 
-            if self.identifier_equals(&token, &local.token) {
+            if identifier_equals(&self.scanner, &token, &local.token) {
                 return Err(CompileError::VarAlreadyExists(token));
             }
         }
@@ -672,7 +694,7 @@ impl Compiler {
         self.ctx.parent = Some(Box::new(ctx));
     }
 
-    fn end_ctx(&mut self) -> Function {
+    fn end_ctx(&mut self) -> (Function, Vec<Upvalue>) {
         self.emit_return();
 
         if DEBUG_MODE {
@@ -682,7 +704,7 @@ impl Compiler {
 
         let parent = self.ctx.parent.take().unwrap();
         let mut ctx = std::mem::replace(&mut self.ctx, *parent);
-        ctx.fun.take().unwrap()
+        (ctx.fun.take().unwrap(), ctx.upvalues)
     }
 
     fn if_stmt(&mut self) -> ParseResult {
@@ -1070,12 +1092,15 @@ impl Compiler {
     }
 
     fn named_var(&mut self, token: &Token, can_assign: bool) -> ParseResult {
-        let (arg, op_get, op_set) = if let Some(arg) = self.resolve_local(token)? {
-            (arg, Op::GetLocal, Op::SetLocal)
-        } else {
-            let arg = self.identifier_constant(token);
-            (arg, Op::GetGlobal, Op::SetGlobal)
-        };
+        let (arg, op_get, op_set) =
+            if let Some(arg) = self.ctx.resolve_local(&self.scanner, token)? {
+                (arg, Op::GetLocal, Op::SetLocal)
+            } else if let Some(arg) = self.ctx.resolve_upvalue(&self.scanner, token)? {
+                (arg, Op::GetUpvalue, Op::SetUpvalue)
+            } else {
+                let arg = self.identifier_constant(token);
+                (arg, Op::GetGlobal, Op::SetGlobal)
+            };
 
         if can_assign && self.consume_is(TokenType::Equal) {
             self.expression()?;
@@ -1086,24 +1111,6 @@ impl Compiler {
         self.emit_bytes(op_get.into(), arg);
 
         Ok(())
-    }
-
-    fn resolve_local(&mut self, token: &Token) -> Result<Option<u8>, CompileError> {
-        for i in (0..self.ctx.locals.len()).rev() {
-            let local = self.ctx.locals.get(i).unwrap();
-
-            if self.identifier_equals(token, &local.token) {
-                if local.depth == -1 {
-                    return Err(CompileError::CantUseLocalVarInItsOwnInitializer(
-                        local.token,
-                    ));
-                }
-
-                return Ok(Some(i as u8));
-            }
-        }
-
-        Ok(None)
     }
 
     fn last_local(&self) -> &Local {
@@ -1230,12 +1237,6 @@ impl Compiler {
         }
     }
 
-    fn identifier_equals(&self, a: &Token, b: &Token) -> bool {
-        a.token_type == b.token_type
-            && a.length == b.length
-            && self.scanner.token_data(a) == self.scanner.token_data(b)
-    }
-
     fn chunk(&self) -> &Chunk {
         &self.ctx.fun.as_ref().unwrap().chunk
     }
@@ -1243,6 +1244,90 @@ impl Compiler {
     fn chunk_mut(&mut self) -> &mut Chunk {
         &mut self.ctx.fun.as_mut().unwrap().chunk
     }
+}
+
+impl Context {
+    fn resolve_local(
+        &mut self,
+        scanner: &Scanner,
+        token: &Token,
+    ) -> Result<Option<u8>, CompileError> {
+        for i in (0..self.locals.len()).rev() {
+            let local = self.locals.get(i).unwrap();
+
+            if identifier_equals(scanner, token, &local.token) {
+                if local.depth == -1 {
+                    return Err(CompileError::CantUseLocalVarInItsOwnInitializer(
+                        local.token,
+                    ));
+                }
+
+                return Ok(Some(i as u8));
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn resolve_upvalue(
+        &mut self,
+        scanner: &Scanner,
+        token: &Token,
+    ) -> Result<Option<u8>, CompileError> {
+        if self.parent.is_none() {
+            return Ok(None);
+        }
+
+        if let Some(local) = self.resolve_local(scanner, token)? {
+            println!("RESOLVE LOCAL? {local} {:?}", scanner.token_data(token));
+            return Ok(Some(self.add_upvalue(local, true)));
+        }
+
+        if self.parent.is_none() {
+            return Ok(None);
+        }
+
+        if let Some(upvalue) = self
+            .parent
+            .as_mut()
+            .unwrap()
+            .resolve_upvalue(scanner, token)?
+        {
+            println!(
+                "RESOLVE RECURSIVE? {upvalue} {:?}",
+                scanner.token_data(token)
+            );
+            return Ok(Some(self.add_upvalue(upvalue, false)));
+        }
+
+        Ok(None)
+    }
+
+    fn add_upvalue(&mut self, index: u8, is_local: bool) -> u8 {
+        if self.upvalues.len() >= u8::MAX as usize {
+            panic!("too many closure variables in function");
+        }
+
+        if let Some(index) = self.upvalues.iter().position(|u| u.index == index) {
+            return index.try_into().unwrap();
+        }
+
+        self.fun.as_mut().unwrap().upvalue_count += 1;
+        self.upvalues.push(Upvalue { index, is_local });
+
+        self.upvalues
+            .len()
+            .checked_sub(1)
+            .unwrap()
+            .try_into()
+            .unwrap()
+    }
+}
+
+fn identifier_equals(scanner: &Scanner, a: &Token, b: &Token) -> bool {
+    a.token_type == b.token_type
+        && a.length == b.length
+        && scanner.token_data(a) == scanner.token_data(b)
 }
 
 pub fn compile(code: String) -> Result<Function, CompileError> {

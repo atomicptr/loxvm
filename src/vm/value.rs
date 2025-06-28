@@ -1,4 +1,7 @@
-use std::{fmt::Display, rc::Rc};
+use std::{
+    fmt::{Display, format},
+    rc::Rc,
+};
 
 use crate::vm::{chunk::Chunk, vm::RuntimeError};
 
@@ -10,7 +13,9 @@ pub enum Value {
     Number(f64),
     Bool(bool),
     Function(Rc<Function>),
+    Closure(Closure),
     NativeFunction(NativeFn, usize),
+    Upvalue(usize),
     Nil,
 }
 
@@ -31,9 +36,22 @@ impl Display for Value {
                     fun.arity
                 )
             }
+            Value::Closure(closure) => {
+                format!(
+                    "<closure{}/{}/()>",
+                    closure
+                        .fun
+                        .name
+                        .as_ref()
+                        .and_then(|name| Some(format!(" {name}")))
+                        .unwrap_or_default(),
+                    closure.fun.arity
+                )
+            }
             Value::NativeFunction(fun, arity) => {
                 format!("<native fn {fun:?}/{arity}()>")
             }
+            Value::Upvalue(upvalue) => format!("(UP: {})", upvalue),
         };
 
         write!(f, "{res}")?;
@@ -195,6 +213,7 @@ pub struct Function {
     pub name: Option<String>,
     pub arity: usize,
     pub chunk: Chunk,
+    pub upvalue_count: usize,
 }
 
 impl Function {
@@ -203,6 +222,13 @@ impl Function {
             name: Some(name),
             arity,
             chunk: Chunk::default(),
+            upvalue_count: 0,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct Closure {
+    pub fun: Rc<Function>,
+    pub upvalues: Vec<usize>,
 }

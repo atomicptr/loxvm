@@ -185,6 +185,8 @@ impl Scanner {
                             while *self.peek() != '\n' && !self.is_at_end() {
                                 self.advance();
                             }
+                            // skip the newline too
+                            self.advance();
                         }
                     }
                     return;

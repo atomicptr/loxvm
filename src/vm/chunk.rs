@@ -88,10 +88,53 @@ impl Chunk {
             Op::DefineGlobal => self.debug_op_constant(op, offset),
             Op::GetLocal => self.debug_op_byte(op, offset),
             Op::SetLocal => self.debug_op_byte(op, offset),
+            Op::GetUpvalue => self.debug_op_byte(op, offset),
+            Op::SetUpvalue => self.debug_op_byte(op, offset),
             Op::Jump => self.debug_op_jump(op, 1, offset),
             Op::JumpIfFalse => self.debug_op_jump(op, 1, offset),
             Op::Loop => self.debug_op_jump(op, -1, offset),
             Op::Call => self.debug_op_byte(op, offset),
+            Op::Closure => {
+                // remove closure op code
+                let mut offset = offset + 1;
+
+                // next is Op::Constant, skip that too
+                offset += 1;
+
+                // current is the current constant index
+                let constant = self.code[offset];
+                offset += 1;
+
+                println!(
+                    "{:<16}    {:04} {}\x1b[0m",
+                    Op::Closure.name(),
+                    constant,
+                    self.constants.get(constant as usize).unwrap()
+                );
+
+                let value = self.constants.get(constant as usize).unwrap();
+
+                if let Value::Function(fun) = value {
+                    for _ in 0..fun.upvalue_count {
+                        let is_local = self.code[offset];
+                        offset += 1;
+
+                        let index = self.code[offset];
+                        offset += 1;
+
+                        println!(
+                            "\x1b[31;2m{:04}    | {:<16}    {}\x1b[0m",
+                            offset - 2,
+                            if is_local == 1 { "LOCAL" } else { "UPVALUE" },
+                            index
+                        )
+                    }
+                } else {
+                    unreachable!("Unexpected: {value:?}");
+                }
+
+                offset
+            }
             op => self.debug_op_simple(op, offset),
         }
     }

@@ -12,6 +12,8 @@ pub enum Op {
     DefineGlobal,
     GetLocal,
     SetLocal,
+    GetUpvalue,
+    SetUpvalue,
 
     // unary operations
     Not,
@@ -32,6 +34,7 @@ pub enum Op {
     JumpIfFalse,
     Loop,
     Call,
+    Closure,
 
     // keep this last (or edit From<u8>)
     Return,

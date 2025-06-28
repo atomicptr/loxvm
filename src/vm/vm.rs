@@ -7,7 +7,7 @@ use crate::{
         chunk::Chunk,
         compiler::{CompileError, compile},
         op::Op,
-        value::{Comp, Function, NativeFn, Value, ValueError},
+        value::{Closure, Comp, Function, NativeFn, Value, ValueError},
     },
 };
 
@@ -20,7 +20,7 @@ pub struct VM {
 
 #[derive(Debug)]
 struct CallFrame {
-    fun: Rc<Function>,
+    closure: Closure,
     ip: usize,
     stack_base_index: usize,
 }
@@ -77,11 +77,12 @@ impl VM {
 
     pub fn run(&mut self, code: String) -> Result<Value, VMError> {
         let fun = compile(code)?;
-
         let fun = Rc::new(fun);
 
+        self.stack.clear();
+
         self.stack.push(Value::Function(fun.clone()));
-        self.call_function(fun, 0)?;
+        self.call_function(fun, 0, Vec::new())?;
 
         let res = self.interpret();
 
@@ -166,6 +167,34 @@ impl VM {
                         let frame_base_ptr = self.frame().stack_base_index;
                         self.stack[frame_base_ptr + slot] = self.peek().clone();
                     }
+                    Op::GetUpvalue => {
+                        let slot = self.read_u8().unwrap();
+
+                        let upvalue = self.frame().closure.upvalues.get(slot as usize).unwrap();
+
+                        println!(
+                            "UPVALUE AT {upvalue}, Value: {:?}",
+                            self.stack.get(*upvalue)
+                        );
+
+                        let value = self.stack.get(*upvalue as usize).unwrap();
+                        self.push(value.clone());
+                    }
+                    Op::SetUpvalue => {
+                        let slot = self.read_u8().unwrap();
+                        let upvalue = self
+                            .frame_mut()
+                            .closure
+                            .upvalues
+                            .get(slot as usize)
+                            .copied()
+                            .unwrap();
+
+                        let value = self.peek().clone();
+                        println!("SET UPVALUE {upvalue} to {value:?}");
+
+                        self.stack[upvalue] = value;
+                    }
 
                     // unary operations
                     Op::Negate => {
@@ -235,7 +264,9 @@ impl VM {
                         let callee = self.peek_at(arity as usize).clone();
 
                         match callee {
-                            Value::Function(fun) => self.call_function(fun.clone(), arity)?,
+                            Value::Closure(closure) => {
+                                self.call_function(closure.fun, arity, closure.upvalues)?
+                            }
                             Value::NativeFunction(fun, fun_arity) => {
                                 if arity != fun_arity {
                                     return Err(RuntimeError::FunArgumentCountMismatch(
@@ -259,6 +290,31 @@ impl VM {
                             }
                             _ => panic!("can only call functions"),
                         };
+                    }
+                    Op::Closure => {
+                        // remove the name
+                        let _ = self.read_constant().unwrap();
+
+                        let constant = self.read_constant().unwrap();
+                        let Value::Function(fun) = constant.clone() else {
+                            unreachable!("Unexpected: {constant:?}");
+                        };
+
+                        let mut upvalues = Vec::with_capacity(fun.upvalue_count);
+
+                        for _ in 0..fun.upvalue_count {
+                            let is_local = self.read_u8().unwrap() == 1;
+                            let index = self.read_u8().unwrap() as usize;
+
+                            if is_local {
+                                upvalues.push(self.stack.len() + index);
+                                continue;
+                            }
+
+                            upvalues.push(*self.frame().closure.upvalues.get(index).unwrap());
+                        }
+
+                        self.push(Value::Closure(Closure { fun, upvalues }));
                     }
 
                     Op::Return => {
@@ -285,7 +341,12 @@ impl VM {
         Ok(Value::Nil)
     }
 
-    fn call_function(&mut self, fun: Rc<Function>, arity: usize) -> Result<(), RuntimeError> {
+    fn call_function(
+        &mut self,
+        fun: Rc<Function>,
+        arity: usize,
+        upvalues: Vec<usize>,
+    ) -> Result<(), RuntimeError> {
         if arity != fun.arity {
             self.print_stacktrace();
             return Err(RuntimeError::FunArgumentCountMismatch(arity, fun.arity));
@@ -297,7 +358,7 @@ impl VM {
         }
 
         self.frames.push(CallFrame {
-            fun,
+            closure: Closure { fun, upvalues },
             ip: 0,
             stack_base_index: self.stack.len() - 1 - arity,
         });
@@ -314,8 +375,13 @@ impl VM {
         for frame in self.frames.iter().rev() {
             println!(
                 "[line {}] in {}",
-                frame.fun.chunk.get_line(frame.ip).unwrap(),
-                frame.fun.name.as_ref().unwrap_or(&"???".to_string())
+                frame.closure.fun.chunk.get_line(frame.ip).unwrap(),
+                frame
+                    .closure
+                    .fun
+                    .name
+                    .as_ref()
+                    .unwrap_or(&"???".to_string())
             );
         }
     }
@@ -381,7 +447,7 @@ impl VM {
     }
 
     fn chunk(&self) -> &Chunk {
-        &self.frame().fun.chunk
+        &self.frame().closure.fun.chunk
     }
 
     fn debug_ip(&self) {
@@ -404,9 +470,9 @@ impl VM {
                 ))
                 .collect::<Vec<String>>()
                 .join(", "),
-            self.frame().fun.name.as_ref().unwrap()
+            self.frame().closure.fun.name.as_ref().unwrap()
         );
 
-        self.frame().fun.chunk.debug_op(self.frame().ip);
+        self.frame().closure.fun.chunk.debug_op(self.frame().ip);
     }
 }
