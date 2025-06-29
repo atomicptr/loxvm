@@ -537,7 +537,7 @@ impl VM {
 
         if self.frame().closure.upvalues.len() > 0 {
             println!(
-                "\x1b[31;2m--->      UPVALUES (FRAME):   [{}]\x1b[0m",
+                "\x1b[31;2m--->      UPVALUES (FRAME):   [{}] ({})\x1b[0m",
                 self.frame()
                     .closure
                     .upvalues
@@ -549,6 +549,7 @@ impl VM {
                     })
                     .collect::<Vec<String>>()
                     .join(", "),
+                self.frame().closure.fun.name.clone().unwrap_or_default()
             );
         }
 
