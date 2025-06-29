@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     constants::DEBUG_MODE,
@@ -7,7 +7,7 @@ use crate::{
         chunk::Chunk,
         compiler::{CompileError, compile},
         op::Op,
-        value::{Closure, Comp, Function, NativeFn, Value, ValueError},
+        value::{Closure, Comp, Function, NativeFn, Upvalue, Value, ValueError},
     },
 };
 
@@ -16,6 +16,7 @@ pub struct VM {
     frames: Vec<CallFrame>,
     stack: Vec<Value>,
     globals: HashMap<String, Value>,
+    upvalues: Vec<Rc<RefCell<Upvalue>>>,
 }
 
 #[derive(Debug)]
@@ -65,6 +66,7 @@ impl VM {
             stack: Vec::with_capacity(u8::MAX as usize),
             frames: Vec::with_capacity(u8::MAX as usize),
             globals: HashMap::new(),
+            upvalues: Vec::with_capacity(u8::MAX as usize),
         };
 
         vm.define_native("time", lox_time, 0);
@@ -172,13 +174,11 @@ impl VM {
 
                         let upvalue = self.frame().closure.upvalues.get(slot as usize).unwrap();
 
-                        println!(
-                            "UPVALUE AT {upvalue}, Value: {:?}",
-                            self.stack.get(*upvalue)
-                        );
-
-                        let value = self.stack.get(*upvalue as usize).unwrap();
-                        self.push(value.clone());
+                        self.push(if upvalue.borrow().closed.is_some() {
+                            upvalue.borrow().closed.as_ref().unwrap().borrow().clone()
+                        } else {
+                            self.stack.get(upvalue.borrow().index).unwrap().clone()
+                        });
                     }
                     Op::SetUpvalue => {
                         let slot = self.read_u8().unwrap();
@@ -187,13 +187,23 @@ impl VM {
                             .closure
                             .upvalues
                             .get(slot as usize)
-                            .copied()
-                            .unwrap();
+                            .unwrap()
+                            .clone();
 
                         let value = self.peek().clone();
-                        println!("SET UPVALUE {upvalue} to {value:?}");
 
-                        self.stack[upvalue] = value;
+                        if upvalue.borrow().closed.is_some() {
+                            upvalue
+                                .borrow_mut()
+                                .closed
+                                .replace(Rc::new(RefCell::new(value)));
+                        } else {
+                            self.stack[upvalue.borrow().index] = value;
+                        }
+                    }
+                    Op::CloseUpvalue => {
+                        self.close_upvalue(self.stack.len() - 1);
+                        self.pop();
                     }
 
                     // unary operations
@@ -307,11 +317,12 @@ impl VM {
                             let index = self.read_u8().unwrap() as usize;
 
                             if is_local {
-                                upvalues.push(self.stack.len() + index);
+                                upvalues.push(self.capture_upvalue(index));
                                 continue;
                             }
 
-                            upvalues.push(*self.frame().closure.upvalues.get(index).unwrap());
+                            upvalues
+                                .push(self.frame().closure.upvalues.get(index).unwrap().clone());
                         }
 
                         self.push(Value::Closure(Closure { fun, upvalues }));
@@ -319,6 +330,7 @@ impl VM {
 
                     Op::Return => {
                         let value = self.pop();
+                        self.close_upvalue(self.frame().stack_base_index);
 
                         // remove items from stack until we're back at the stack base index
                         let base_index = self.frame().stack_base_index;
@@ -345,7 +357,7 @@ impl VM {
         &mut self,
         fun: Rc<Function>,
         arity: usize,
-        upvalues: Vec<usize>,
+        upvalues: Vec<Rc<RefCell<Upvalue>>>,
     ) -> Result<(), RuntimeError> {
         if arity != fun.arity {
             self.print_stacktrace();
@@ -364,6 +376,45 @@ impl VM {
         });
 
         Ok(())
+    }
+
+    fn capture_upvalue(&mut self, index: usize) -> Rc<RefCell<Upvalue>> {
+        let upvalue = self
+            .upvalues
+            .iter()
+            .find(|upvalue| upvalue.borrow().index <= index);
+
+        if let Some(upvalue) = upvalue {
+            if upvalue.borrow().index == index {
+                return upvalue.clone();
+            }
+        }
+
+        let upvalue = Rc::new(RefCell::new(Upvalue {
+            index: self.frame().stack_base_index + index,
+            closed: None,
+        }));
+
+        self.upvalues.push(upvalue.clone());
+
+        upvalue
+    }
+
+    fn close_upvalue(&mut self, until: usize) {
+        let mut count = 0;
+
+        for upvalue in self.upvalues.iter().rev() {
+            // should be closed
+            let index = upvalue.borrow().index;
+            if index >= until {
+                count += 1;
+
+                let value = self.stack.get(index).unwrap();
+                upvalue.borrow_mut().closed = Some(Rc::new(RefCell::new(value.clone())));
+            }
+        }
+
+        self.upvalues.truncate(self.upvalues.len() - count);
     }
 
     fn define_native(&mut self, name: &str, fun: NativeFn, arity: usize) {
@@ -472,6 +523,34 @@ impl VM {
                 .join(", "),
             self.frame().closure.fun.name.as_ref().unwrap()
         );
+
+        if self.upvalues.len() > 0 {
+            println!(
+                "\x1b[31;2m--->      UPVALUES (OPEN):    [{}]\x1b[0m",
+                self.upvalues
+                    .iter()
+                    .map(|up| format!("{}", up.borrow().index))
+                    .collect::<Vec<String>>()
+                    .join(", "),
+            );
+        }
+
+        if self.frame().closure.upvalues.len() > 0 {
+            println!(
+                "\x1b[31;2m--->      UPVALUES (FRAME):   [{}]\x1b[0m",
+                self.frame()
+                    .closure
+                    .upvalues
+                    .iter()
+                    .map(|up| if let Some(closed) = &up.borrow().closed {
+                        format!("{:?}", closed.borrow())
+                    } else {
+                        format!("{}", up.borrow().index)
+                    })
+                    .collect::<Vec<String>>()
+                    .join(", "),
+            );
+        }
 
         self.frame().closure.fun.chunk.debug_op(self.frame().ip);
     }

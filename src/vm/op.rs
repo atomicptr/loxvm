@@ -14,6 +14,7 @@ pub enum Op {
     SetLocal,
     GetUpvalue,
     SetUpvalue,
+    CloseUpvalue,
 
     // unary operations
     Not,

@@ -36,6 +36,7 @@ struct Context {
 struct Local {
     token: Token,
     depth: i32,
+    is_captured: bool,
 }
 
 #[derive(Debug)]
@@ -178,6 +179,7 @@ impl Compiler {
                         length: 0,
                     },
                     depth: 0,
+                    is_captured: false,
                 }],
                 upvalues: Vec::new(),
                 scope_depth: 0,
@@ -449,6 +451,7 @@ impl Compiler {
             loop_scopes: Vec::new(),
             scope_depth: self.ctx.scope_depth + 1,
         };
+
         self.begin_ctx(ctx);
 
         self.ctx.locals.push(Local {
@@ -459,6 +462,7 @@ impl Compiler {
                 length: 0,
             },
             depth: 0,
+            is_captured: false,
         });
 
         if !self.consume_is(TokenType::LParen) {
@@ -504,15 +508,11 @@ impl Compiler {
 
         let (fun, upvalues) = self.end_ctx();
 
-        println!("EOF UPVALUES? {} = {:?}", fun.upvalue_count, upvalues);
-
         self.emit_byte(Op::Closure.into());
         self.emit_constant(Value::Function(Rc::new(fun)));
 
         for upvalue in upvalues {
             let is_local = if upvalue.is_local { 1 } else { 0 };
-
-            println!("EMIT UPVALUE {upvalue:?}");
 
             self.emit_byte(is_local);
             self.emit_byte(upvalue.index);
@@ -587,7 +587,11 @@ impl Compiler {
             return Err(CompileError::TooManyLocalVars(token));
         }
 
-        self.ctx.locals.push(Local { token, depth: -1 });
+        self.ctx.locals.push(Local {
+            token,
+            depth: -1,
+            is_captured: false,
+        });
 
         Ok(())
     }
@@ -666,14 +670,14 @@ impl Compiler {
         }
 
         if !self.consume_is(TokenType::RBrace) {
-            Err(CompileError::ExpectedChar(
+            return Err(CompileError::ExpectedChar(
                 ';',
                 "block".to_string(),
                 self.previous.unwrap(),
-            ))
-        } else {
-            Ok(())
+            ));
         }
+
+        Ok(())
     }
 
     fn begin_scope(&mut self) {
@@ -684,8 +688,13 @@ impl Compiler {
         self.ctx.scope_depth -= 1;
 
         while self.ctx.locals.len() > 0 && self.last_local().depth > self.ctx.scope_depth as i32 {
+            if self.ctx.locals.last().unwrap().is_captured {
+                self.emit_byte(Op::CloseUpvalue.into());
+            } else {
+                self.emit_byte(Op::Pop.into());
+            }
+
             self.ctx.locals.pop();
-            self.emit_byte(Op::Pop.into());
         }
     }
 
@@ -1278,9 +1287,14 @@ impl Context {
             return Ok(None);
         }
 
-        if let Some(local) = self.resolve_local(scanner, token)? {
-            println!("RESOLVE LOCAL? {local} {:?}", scanner.token_data(token));
-            return Ok(Some(self.add_upvalue(local, true)));
+        if let Some(local) = self
+            .parent
+            .as_mut()
+            .unwrap()
+            .resolve_local(scanner, token)?
+        {
+            self.parent.as_mut().unwrap().locals[local as usize].is_captured = true;
+            return Ok(Some(self.add_upvalue(local.clone(), true)));
         }
 
         if self.parent.is_none() {
@@ -1293,10 +1307,6 @@ impl Context {
             .unwrap()
             .resolve_upvalue(scanner, token)?
         {
-            println!(
-                "RESOLVE RECURSIVE? {upvalue} {:?}",
-                scanner.token_data(token)
-            );
             return Ok(Some(self.add_upvalue(upvalue, false)));
         }
 

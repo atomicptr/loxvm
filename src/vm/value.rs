@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Display, format},
-    rc::Rc,
-};
+use std::{cell::RefCell, fmt::Display, rc::Rc};
 
 use crate::vm::{chunk::Chunk, vm::RuntimeError};
 
@@ -15,7 +12,7 @@ pub enum Value {
     Function(Rc<Function>),
     Closure(Closure),
     NativeFunction(NativeFn, usize),
-    Upvalue(usize),
+    Upvalue(Upvalue),
     Nil,
 }
 
@@ -51,7 +48,7 @@ impl Display for Value {
             Value::NativeFunction(fun, arity) => {
                 format!("<native fn {fun:?}/{arity}()>")
             }
-            Value::Upvalue(upvalue) => format!("(UP: {})", upvalue),
+            Value::Upvalue(upvalue) => format!("(UP: {:?})", upvalue),
         };
 
         write!(f, "{res}")?;
@@ -230,5 +227,11 @@ impl Function {
 #[derive(Debug, Clone)]
 pub struct Closure {
     pub fun: Rc<Function>,
-    pub upvalues: Vec<usize>,
+    pub upvalues: Vec<Rc<RefCell<Upvalue>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Upvalue {
+    pub index: usize,
+    pub closed: Option<Rc<RefCell<Value>>>,
 }
